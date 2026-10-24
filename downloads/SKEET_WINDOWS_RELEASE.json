@@ -1,0 +1,13 @@
+{
+  "archive": "skeet-windows-x86-overlay-v1.zip",
+  "bytes": 14610934,
+  "sha256": "4f9f0efb75906fde35ceb2480e92bd018324574d1c9a9b337bcbe452a84d48c7",
+  "files": 67,
+  "dll_sha256": "72fdfa1e9d74d3d45e0d69dfb9c044efc56a3f1f3dd6d1e6e310fc41d7116869",
+  "injector_sha256": "7414ea677feda7677a6db17888071a0c4f7a6da0ca4065da170d7757adbd0254",
+  "windows_loader_tested": false,
+  "game_tested": false,
+  "full_rage_source": false,
+  "prediction_module_integrated": false,
+  "archive_integrity_verified": true
+}
