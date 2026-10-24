@@ -1,0 +1,8 @@
+{
+  "archive": "skeet-prediction-diagnostics-v1.zip",
+  "bytes": 13888,
+  "sha256": "d5bc66a3ac751ffe6354a7792a2838e17d882a00b396d2fc806867b26b59df04",
+  "purpose": "Opt-in read-only GameSense trace collection; does not change prediction or patch the game",
+  "game_runtime_tested": false,
+  "tests": "LuaJIT host-fixture lifecycle/ring/shot checks and 11 Python analyzer tests passed"
+}

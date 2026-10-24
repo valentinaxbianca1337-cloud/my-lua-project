@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+skeet_prediction_trace.json
+*.analysis.json
