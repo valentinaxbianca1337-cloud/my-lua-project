@@ -1,0 +1,77 @@
+GAZOLINA 421 — сверка схемы билдера, редакция 1.1
+
+Источник: загруженный Gazolina421.lua; извлечение меню выполнено из исходного Lua-кода.
+Проверено 18 профилей: T/CT × 9 состояний. В каждом профиле 65 параметров.
+Все ключи, типы, диапазоны, варианты combobox и исходные значения совпадают.
+Ниже перечислены исходные параметры; delay_1..10, randomize_1..10 и choke1_1..10
+действительно сохранены отдельно в каждом профиле, а не объединены в один параметр.
+
+apply_delay: check; default=false
+body_jitter: check; default=true
+body_yaw: check; default=false
+choke1_1: slider; 1..32; default=1
+choke1_10: slider; 1..32; default=1
+choke1_2: slider; 1..32; default=1
+choke1_3: slider; 1..32; default=1
+choke1_4: slider; 1..32; default=1
+choke1_5: slider; 1..32; default=1
+choke1_6: slider; 1..32; default=1
+choke1_7: slider; 1..32; default=1
+choke1_8: slider; 1..32; default=1
+choke1_9: slider; 1..32; default=1
+choke_from: slider; 1..32; default=32
+choke_method: combo; Default / Custom; default=Default
+choke_slider: slider; 1..32; default=16
+choke_sliders: slider; 2..10; default=2
+choke_to: slider; 1..32; default=32
+defensive_choke: combo; Default / Custom; default=Default
+delay_1: slider; 1..22; default=1
+delay_10: slider; 1..22; default=1
+delay_2: slider; 1..22; default=1
+delay_3: slider; 1..22; default=1
+delay_4: slider; 1..22; default=1
+delay_5: slider; 1..22; default=1
+delay_6: slider; 1..22; default=1
+delay_7: slider; 1..22; default=1
+delay_8: slider; 1..22; default=1
+delay_9: slider; 1..22; default=1
+delay_custom_sliders: slider; 1..10; default=2
+delay_default: slider; 1..22; default=1
+delay_method: combo; Default / Random / Ways; default=Default
+delay_random_max: slider; 1..22; default=1
+delay_random_min: slider; 1..22; default=1
+from_limit: slider; 0..60; default=60
+inverter: check; default=false
+left_limit: slider; 0..60; default=60
+left_yaw: slider; -180..180; default=0
+limit_mode: combo; Default / Switch / Random; default=Default
+mode: combo; Static / Ticks / Random; default=Static
+mode_random: slider; 4..16; default=4
+mode_ticks: slider; 4..16; default=4
+modifier_offset: slider; -180..180; default=0
+random_choke: check; default=false
+randomize_1: slider; -180..180; default=0
+randomize_10: slider; -180..180; default=0
+randomize_2: slider; -180..180; default=0
+randomize_3: slider; -180..180; default=0
+randomize_4: slider; -180..180; default=0
+randomize_5: slider; -180..180; default=0
+randomize_6: slider; -180..180; default=0
+randomize_7: slider; -180..180; default=0
+randomize_8: slider; -180..180; default=0
+randomize_9: slider; -180..180; default=0
+randomize_custom_sliders: slider; 2..10; default=2
+randomize_max: slider; -180..180; default=0
+randomize_min: slider; -180..180; default=0
+randomize_mode: combo; Default / Ways; default=Default
+randomize_modifier: check; default=false
+right_limit: slider; 0..60; default=60
+right_yaw: slider; -180..180; default=0
+to_limit: slider; 0..60; default=60
+yaw: slider; 0..1; default=0
+yaw_modifier: combo; Disabled / Center / Offset / Random / Spin / 3-Way / 5-Way; default=Disabled
+yaw_offset: slider; -180..180; default=0
+
+Эта сверка подтверждает полноту настроек билдера, а не идентичность
+внутренних алгоритмов двух разных клиентов и не запуск в настоящем GameSense.
+Пределы сопоставления API и зависимости перечислены в README.txt.
