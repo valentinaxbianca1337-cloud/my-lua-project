@@ -1,11 +1,11 @@
--- Gazolina 421 | GameSense CS:GO port | revision 1.6
+-- Gazolina 421 | GameSense CS:GO port | revision 1.7
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
 -- Menu: AA; builder in Anti-aimbot angles, Other spans all three blocks. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
 -- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 2, revision = "1.6", controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 2, revision = "1.7", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
     editor_state = "Standing",
@@ -117,6 +117,206 @@ G.find("fl_variance", "AA", "Fake lag", "Variance")
 G.find("fl_limit", "AA", "Fake lag", "Limit")
 G.find("fake_peek", "AA", "Other", "Fake peek")
 
+-- Native inline State row. The uploaded example documents this 32-bit menu
+-- layout; it is not a public ui API. Never dereference its build-specific root
+-- without VirtualQuery checks. Only this Lua's State control may be written.
+function G.make_state_row(memory,base)
+    local row={memory=memory,base=base,slots={},expected={},tries=0,patched=false}
+    function row:vector(address,limit)
+        local m=self.memory
+        if not m.readable(address,8) then return end
+        local first,last=m.ptr(address),m.ptr(address+4)
+        if first==0 and last==0 then return 0,0 end
+        local bytes=last-first
+        if first<65536 or bytes<0 or bytes%4~=0 or bytes/4>limit then return end
+        if bytes>0 and not m.readable(first,bytes) then return end
+        return first,bytes/4
+    end
+    function row:scan()
+        local m=self.memory
+        local first,n=self:vector(self.base+0x54,32)
+        if not first or n==0 then return end
+        local out={all={},groups={}};local visited=0
+        for ti=0,n-1 do
+            local tab=m.ptr(first+ti*4)
+            local children,count=self:vector(tab+0x70,64)
+            if children then for ci=0,count-1 do
+                local child=m.ptr(children+ci*4)
+                local elements,total=self:vector(child+0x80,4096)
+                if elements then
+                    local group={child=child,items={}};out.groups[#out.groups+1]=group
+                    for ei=0,total-1 do
+                        visited=visited+1;if visited>16384 then return end
+                        local ptr=m.ptr(elements+ei*4)
+                        if ptr~=0 then
+                            if not m.readable(ptr+0x18,0x20) then return end
+                            if out.all[ptr] then return end
+                            out.all[ptr]=child;group.items[#group.items+1]=ptr
+                        end
+                    end
+                end
+            end end
+        end
+        return out
+    end
+    function row:bind_one(key,before)
+        if not before then return end
+        local after=self:scan();if not after then return end
+        local ptr,child,n=nil,nil,0
+        for candidate,parent in pairs(after.all) do
+            if not before.all[candidate] then ptr=candidate;child=parent;n=n+1 end
+        end
+        if n==1 then self.slots[key]={ptr=ptr,child=child} end
+    end
+    function row:record(key,kind,container,extra_label)
+        if container~="Anti-aimbot angles" then return end
+        if extra_label then self.expected[#self.expected+1]={kind="label"} end
+        self.expected[#self.expected+1]={key=key,kind=kind}
+    end
+    function row:bind_deferred()
+        if self.slots.override and self.slots.state then return true end
+        local after=self:scan();if not after or not self.before then return false end
+        -- Some builds attach controls only during their next UI frame. Match
+        -- the complete ordered inventory, not an arbitrary newly found element.
+        local candidate,matches=nil,0
+        for _,group in ipairs(after.groups) do
+            local fresh={}
+            for _,ptr in ipairs(group.items) do if not self.before.all[ptr] then fresh[#fresh+1]=ptr end end
+            if #fresh==#self.expected and #fresh>0 then
+                local types,valid={},true
+                for i,entry in ipairs(self.expected) do
+                    local tag=self.memory.byte(fresh[i]+0x19)
+                    if types[entry.kind] and types[entry.kind]~=tag then valid=false;break end
+                    if entry.kind=="button" and tag~=2 then valid=false;break end
+                    types[entry.kind]=tag
+                end
+                if valid and types.check~=types.combo then candidate={group=group,items=fresh};matches=matches+1 end
+            end
+        end
+        if matches~=1 then return false end
+        for i,entry in ipairs(self.expected) do
+            if entry.key=="override" or entry.key=="state" then
+                self.slots[entry.key]={ptr=candidate.items[i],child=candidate.group.child}
+            end
+        end
+        return self.slots.override~=nil and self.slots.state~=nil
+    end
+    function row:live()
+        local a,b=self.slots.override,self.slots.state
+        if not a or not b or a.child~=b.child or a.ptr==b.ptr then return false end
+        local m=self.memory
+        if not m.readable(a.ptr+0x18,0x20) or not m.writable(b.ptr+0x18,0x20) then return false end
+        local first,n=self:vector(a.child+0x80,4096);if not first then return false end
+        local found_a,found_b=false,false
+        for i=0,n-1 do local p=m.ptr(first+i*4);found_a=found_a or p==a.ptr;found_b=found_b or p==b.ptr end
+        if not found_a or not found_b then return false end
+        if a.tag and m.byte(a.ptr+0x19)~=a.tag then return false end
+        if b.tag and m.byte(b.ptr+0x19)~=b.tag then return false end
+        return m.byte(a.ptr+0x19)~=m.byte(b.ptr+0x19)
+    end
+    function row:geometry(ptr)
+        local m=self.memory
+        local x,y,w,h=m.int(ptr+0x20),m.int(ptr+0x24),m.int(ptr+0x28),m.int(ptr+0x2c)
+        if (x==0 and y==0) or math.abs(x)>32768 or math.abs(y)>32768 or w<6 or w>1600 or h<5 or h>100 then return end
+        return {x=x,y=y,w=w,h=h}
+    end
+    function row:capture()
+        if not self:live() then return false end
+        local a,b=self.slots.override,self.slots.state
+        local left,right=self:geometry(a.ptr),self:geometry(b.ptr)
+        if not left or not right or right.w<80 or right.h<10 or right.h>60 then return false end
+        local m=self.memory
+        if m.byte(b.ptr+0x18)>1 then return false end
+        a.tag=m.byte(a.ptr+0x19);b.tag=m.byte(b.ptr+0x19)
+        b.original={inline=m.byte(b.ptr+0x18)}
+        for _,offset in ipairs({0x20,0x24,0x28,0x2c,0x30,0x34}) do b.original[offset]=m.int(b.ptr+offset) end
+        self.scale=G.clamp(right.w/198,.5,3)
+        self.right_offset=right.x+right.w-left.x
+        if self.right_offset<100*self.scale or self.right_offset>500*self.scale then b.original=nil;return false end
+        return true
+    end
+    function row:apply()
+        if not self:bind_deferred() then return false end
+        if not self:live() then return false end
+        local a,b=self.slots.override,self.slots.state
+        if not b.original and not self:capture() then return false end
+        local anchor=self:geometry(a.ptr);if not anchor then return false end
+        local m=self.memory
+        local width=math.floor(124*self.scale+.5)
+        local height=b.original[0x2c]
+        local x=anchor.x+self.right_offset-width
+        local y=anchor.y+math.floor((anchor.h-height)/2)
+        if x<anchor.x+70*self.scale then return false end
+        -- Inline flag removes the extra layout row. Both rectangles are kept
+        -- in sync so the native combobox, popup and mouse hitbox move together.
+        m.write_byte(b.ptr+0x18,1)
+        m.write_int(b.ptr+0x20,x);m.write_int(b.ptr+0x24,y)
+        m.write_int(b.ptr+0x28,width);m.write_int(b.ptr+0x30,width)
+        m.write_int(b.ptr+0x2c,height);m.write_int(b.ptr+0x34,height)
+        self.patched=true;return true
+    end
+    function row:restore()
+        if not self.patched then return end
+        if self:live() then
+            local slot=self.slots.state;local m=self.memory
+            m.write_byte(slot.ptr+0x18,slot.original.inline)
+            for _,offset in ipairs({0x20,0x24,0x28,0x2c,0x30,0x34}) do m.write_int(slot.ptr+offset,slot.original[offset]) end
+        end
+        self.patched=false
+    end
+    row.before=row:scan()
+    if not row.before then return nil,"The menu root from message.txt is not mapped in this build." end
+    return row
+end
+function G.native_state_row()
+    local ffi=G.optional("ffi")
+    if not ffi or not ffi.abi("win") or ffi.sizeof("void*")~=4 then return nil,"The supplied inline layout requires Windows / x86 LuaJIT." end
+    pcall(ffi.cdef,"unsigned long __stdcall VirtualQuery(const void*, void*, unsigned long);")
+    local kernel=ffi.load("kernel32")
+    local query=ffi.cast("unsigned long(__stdcall*)(const void*,void*,unsigned long)",kernel.VirtualQuery)
+    local info=ffi.new("struct { void* base; void* allocation; unsigned long allocation_protect; unsigned long size; unsigned long state; unsigned long protect; unsigned long type; }[1]")
+    local function allowed(address,size,write)
+        if type(address)~="number" or address<65536 or size<0 or address+size>4294967295 then return false end
+        if query(ffi.cast("const void*",address),info,ffi.sizeof(info))==0 then return false end
+        local p=tonumber(info[0].protect)
+        if tonumber(info[0].state)~=0x1000 or bit.band(p,0x100)~=0 then return false end
+        local access=bit.band(p,0xff)
+        local writable=access==4 or access==8 or access==0x40 or access==0x80
+        local readable=writable or access==2 or access==0x20
+        local start=tonumber(ffi.cast("uintptr_t",info[0].base))
+        return (write and writable or not write and readable) and address>=start and address+size<=start+tonumber(info[0].size)
+    end
+    local memory={
+        readable=function(a,n) return allowed(a,n,false) end,
+        writable=function(a,n) return allowed(a,n,true) end,
+        ptr=function(a) return tonumber(ffi.cast("uint32_t*",a)[0]) end,
+        int=function(a) return tonumber(ffi.cast("int32_t*",a)[0]) end,
+        byte=function(a) return tonumber(ffi.cast("uint8_t*",a)[0]) end,
+        write_int=function(a,v) ffi.cast("int32_t*",a)[0]=v end,
+        write_byte=function(a,v) ffi.cast("uint8_t*",a)[0]=v end,
+    }
+    return G.make_state_row(memory,0x434799AC)
+end
+function G.update_state_row()
+    local row=G.state_row
+    if not row then
+        if G.is_enabled() and ui.is_menu_open() and G.get("page")=="Angles" and G.get("angles_page")=="Builder" then
+            G.warn_once("inline_state",G.state_row_error or "Inline State is unavailable in this build.")
+        end
+        return
+    end
+    if not ui.is_menu_open() or not G.controls.override.visible or not G.controls.state.visible then row:restore();return end
+    if row:apply() then row.tries=0;return end
+    row:restore()
+    row.tries=row.tries+1
+    if row.tries==120 then G.warn_once("inline_state","Inline State could not validate this menu layout; no unverified element is modified.") end
+end
+do
+    local ok,row,reason=pcall(G.native_state_row)
+    if ok then G.state_row=row;G.state_row_error=reason
+    else G.state_row_error="Inline State initialization failed: "..tostring(row) end
+end
+
 G.native_angle_keys={"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit","edge","roll"}
 G.native_other_keys={"fl_enabled","fl_amount","fl_variance","fl_limit","slow","legs","hs","fake_peek"}
 function G.restore_visibility_cache(name)
@@ -214,6 +414,8 @@ function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     local name = kind=="button" and label or (label .. "\nGazolina421_" .. key)
     local container=page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles"
     if kind == "slider" then default = G.clamp(math.floor(default or opts[1]), opts[1], opts[2]) end
+    local row=G.state_row
+    local before=row and (key=="override" or key=="state") and row:scan() or nil
     local ref, color_label
     if kind == "check" then ref = ui.new_checkbox("AA", container, name)
     elseif kind == "combo" then
@@ -230,6 +432,10 @@ function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     elseif kind == "button" then ref = ui.new_button("AA", container, name, function() G.invoke(key) end)
     elseif kind == "list" then ref = ui.new_listbox("AA", container, name, opts)
     elseif kind == "hotkey" then ref = ui.new_hotkey("AA", container, name, opts and opts.inline or false)
+    end
+    if row then
+        row:record(key,kind,container,color_label~=nil)
+        if key=="override" or key=="state" then row:bind_one(key,before) end
     end
     local item = {ref = ref, color_label = color_label, container=container, inline=kind=="hotkey" and opts and opts.inline or false,kind = kind, page = page, part = part, opts = opts, default = G.copy(default), predicate = predicate, profile = profile}
     G.controls[key] = item; G.order[#G.order + 1] = key
@@ -1412,6 +1618,7 @@ function G.setup_command(cmd)
     G.unsafe_recharge(me,cmd)
 end
 function G.paint_ui()
+    G.update_state_row()
     if G.runtime.recharge then
         local me=entity.get_local_player()
         if not G.is_enabled() or not me or not entity.is_alive(me) or not G.active_ref("dt") or globals.tickcount()>G.runtime.recharge.deadline then G.cancel_recharge() end
@@ -1516,5 +1723,6 @@ client.set_event_callback("shutdown",function()
     pcall(G.persist)
     pcall(G.stop)
     G.restore_native_visibility()
+    if G.state_row then pcall(function() G.state_row:restore() end) end
 end)
 G.log("Loaded v"..G.revision..". AA > Anti-aimbot angles > Gazolina")
