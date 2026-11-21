@@ -1,16 +1,16 @@
--- Gazolina 421 | GameSense CS:GO port | revision 1.5
+-- Gazolina 421 | GameSense CS:GO port | revision 1.6
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
 -- Menu: AA; builder in Anti-aimbot angles, Other spans all three blocks. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
 -- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 1, revision = "1.5", controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 2, revision = "1.6", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
-    teams = {"T", "CT"}, editor_team = "T", editor_state = "Standing",
+    editor_state = "Standing",
     runtime = {side = false, sent = 0, last_flip = 0, warmup_offset = 0,
-        brute_until = 0, brute_offset = 0, brute_tick = -1, last_weapon = nil,
+        brute_until = 0, brute_offset = 0, brute_tick = -1, 
         unlock_command = 0, locked = nil, hit_until = -100, world_until = -100,
         scope_alpha = 0, arrow_alpha = 0, last_manual = "Disabled", manual_keys = {}},
     db_key = "gazolina421_gamesense_v1", preset_names = {}, warned = {},
@@ -105,7 +105,6 @@ G.find("duck", "RAGE", "Other", "Duck peek assist")
 G.find("legs", "AA", "Other", "Leg movement")
 G.find("dt", "RAGE", "Aimbot", "Double tap")
 G.find("rage_enabled", "RAGE", "Aimbot", "Enabled")
-G.find("dt_fl", "RAGE", "Aimbot", "Double tap fake lag limit")
 G.find("hs", "AA", "Other", "On shot anti-aim")
 G.find("scope", "VISUALS", "Effects", "Remove scope overlay")
 G.find("ping", "MISC", "Miscellaneous", "Ping spike")
@@ -146,7 +145,8 @@ function G.hide_native_keys(keys,name)
 end
 function G.sync_native_visibility()
     if not G.get("master") then G.restore_native_visibility();return end
-    G.hide_native_keys(G.native_angle_keys,"native_visibility")
+    if G.builder_enabled() then G.hide_native_keys(G.native_angle_keys,"native_visibility")
+    else G.restore_visibility_cache("native_visibility") end
     if G.get("page")=="Other" then G.hide_native_keys(G.native_other_keys,"native_other_visibility")
     else G.restore_visibility_cache("native_other_visibility") end
 end
@@ -199,8 +199,7 @@ function G.restore_cvars()
     for _, name in ipairs(names) do G.release_cv(name) end
 end
 
--- Native controls are shared by the selected state. All 18 profiles live in
--- G.profiles; switching Team/State never overwrites another profile.
+-- Nine state profiles apply to both teams; one global Override controls the builder.
 function G.display_choice(key,value)
     if key=="page" then return ({Angles="anti-aim",Other="other",Presets="configs"})[value] or value end
     if (key=="yaw_modifier" or key=="pitch") and value=="Disabled" then return "off" end
@@ -208,12 +207,12 @@ function G.display_choice(key,value)
 end
 G.other_locations={}
 for _,key in ipairs({"hit_enabled","hit_marker","crosshair_time","world_time","world_color","manual_arrows","arrows_font","left_symbol","right_symbol","forward_symbol","arrows_offset","arrows_color","keep_transparency","extended_ping","ping_key","fake_latency"}) do G.other_locations[key]="Fake lag" end
-for _,key in ipairs({"lean_enabled","move_lean","jitter_legs","fast_ladder","unsafe_recharge","send_ct","send_t","grenade_release","grenade_damage","increase_speed","purchases","damage_dealt","log_prefix","log_main"}) do G.other_locations[key]="Other" end
+for _,key in ipairs({"lean_enabled","move_lean","jitter_legs","fast_ladder","unsafe_recharge","grenade_release","grenade_damage","increase_speed","purchases","damage_dealt","log_prefix","log_main"}) do G.other_locations[key]="Other" end
 function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     -- Buttons render embedded newlines literally in GameSense. Keep their
     -- names short and single-line; other controls retain their config IDs.
     local name = kind=="button" and label or (label .. "\nGazolina421_" .. key)
-    local container=(key=="send_ct" or key=="send_t") and "Other" or (page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles")
+    local container=page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles"
     if kind == "slider" then default = G.clamp(math.floor(default or opts[1]), opts[1], opts[2]) end
     local ref, color_label
     if kind == "check" then ref = ui.new_checkbox("AA", container, name)
@@ -246,7 +245,6 @@ function G.get(key)
     local item = G.controls[key]
     if item.kind == "color" then return {ui.get(item.ref)} end
     local value=ui.get(item.ref)
-    if key=="state" then return G.states[value] end
     if item.kind=="combo" then
         for _,choice in ipairs(item.opts) do if G.display_choice(key,choice)==value then return choice end end
     end
@@ -254,18 +252,14 @@ function G.get(key)
 end
 function G.set(key, v)
     local item = G.controls[key]
-    if key=="state" then
-        for i,state in ipairs(G.states) do if v==state then ui.set(item.ref,i);return end end
-        error("Invalid state")
-    elseif item.kind == "color" then ui.set(item.ref, unpack(v))
+    if item.kind == "color" then ui.set(item.ref, unpack(v))
     elseif item.kind=="combo" then ui.set(item.ref,G.display_choice(key,v))
     else ui.set(item.ref, v) end
 end
-function G.profile() return G.profiles[G.editor_team][G.editor_state] end
+function G.profile() return G.profiles[G.editor_state] end
 function G.is_enabled() return G.get("master") end
 function G.invoke(key)
-    if key=="send_ct" or key=="send_t" then G.actions.send_team()
-    elseif key=="preset_apply" then
+    if key=="preset_apply" then
         local action="preset_"..G.get("preset_action"):lower()
         if G.actions[action] then G.actions[action]() end
     elseif G.actions and G.actions[key] then G.actions[key]() end
@@ -274,7 +268,7 @@ function G.profile_default()
     local p = {body_format=2}; for _, k in ipairs(G.profile_schema) do p[k] = G.copy(G.controls[k].default) end; return p
 end
 function G.refresh_editor_view()
-    if not G.controls.body_mode or not G.profiles[G.editor_team] then return end
+    if not G.controls.body_mode or not G.profile() then return end
     local p=G.profile()
     local old=G.loading;G.loading=true
     G.set("body_mode",p.body_yaw and p.mode or "Off")
@@ -303,19 +297,16 @@ function G.load_editor()
     G.refresh_editor_view()
     G.loading = old
 end
-function G.sync_editor_team()
-    local me=entity.get_local_player()
-    local id=me and entity.get_prop(me,"m_iTeamNum")
-    if id~=2 and id~=3 then return false end
-    local team=id==2 and "T" or "CT"
-    if team==G.editor_team then return false end
-    G.save_editor()
-    local old=G.loading;G.loading=true;G.set("team",team);G.loading=old
-    G.editor_team=team;G.load_editor()
-    return true
+function G.builder_enabled()
+    return G.is_enabled() and G.get("override")
+end
+function G.reset_aa_clock()
+    local r=G.runtime
+    r.active_state=nil;r.active_profile=nil;r.last_context=nil;r.aa_profile=nil
+    r.side=false;r.sent=0;r.last_flip=0;r.yaw_interval=nil
+    r.body_config=nil;r.body_side=false;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil
 end
 function G.visibility()
-    G.set("editor_team_label",G.editor_team)
     local enabled = G.get("master")
     local page = G.get("page")
     for _, key in ipairs(G.order) do
@@ -325,9 +316,9 @@ function G.visibility()
         if visible and c.part then
             visible=page=="Angles" and c.part==G.get("angles_page")
         end
+        if visible and c.part=="Builder" and key~="override" and key~="state" then visible=G.get("override") end
         if visible and c.predicate then visible = c.predicate() end
         if visible and G.body_detail_keys and G.body_detail_keys[key] then visible=G.get("body_advanced") end
-        if visible and G.defensive_detail_keys and G.defensive_detail_keys[key] then visible=G.get("defensive_enabled") end
         if visible and G.other_parents and G.other_parents[key] then visible=G.get(G.other_parents[key]) end
         if visible and (key=="log_prefix" or key=="log_main") then visible=G.get("purchases") or G.get("damage_dealt") end
         if visible and G.sections and G.sections[key] then
@@ -348,12 +339,8 @@ end
 G.add("master", "check", "Gazolina", nil, nil, nil, false)
 G.add("page", "combo", "", "*", nil, {"Presets", "Angles", "Other"}, "Angles")
 G.add("angles_page", "combo", "", "Angles", nil, {"Builder", "Hotkeys", "Options"}, "Builder")
--- Team is an internal config selector; the visible editor follows the local team.
-G.add("team", "combo", "team", "Angles", nil, G.teams, "T")
-G.controls.team.hidden=true
-G.add("editor_team_label","label","T","Angles","Builder")
-local state_tips={};for i,state in ipairs(G.states) do state_tips[i]=state end
-G.add("state", "slider", "state", "Angles", "Builder", {1,#G.states,tips=state_tips}, 1)
+G.add("override","check","Override","Angles","Builder",nil,false)
+G.add("state", "combo", "", "Angles", "Builder", G.states, "Standing")
 G.profile_control("pitch","combo","pitch",{"Disabled","Down","Up","Minimal","Random"},"Down")
 G.profile_control("yaw", "slider", "yaw", {0, 1, tips = {[0] = "Solo", [1] = "Double"}}, 0)
 G.profile_control("yaw_offset", "slider", "offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
@@ -393,20 +380,6 @@ G.profile_control("right_limit", "slider", "right limit", {-58, 58, unit="°"}, 
 G.profile_control("from_limit", "slider", "from", {-58, 58, unit="°"}, -58, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 G.profile_control("to_limit", "slider", "to", {-58, 58, unit="°"}, 58, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 
-G.profile_control("defensive_enabled","check","defensive",nil,false)
-G.add("break_triggers", "multi", "Action Triggers", "Angles", "Builder", {"Weapon Swap", "Weapon Reload"}, {})
-G.add("hide_shots", "combo", "Hide Shots", "Angles", "Builder", {"Favor Fire Rate", "Favor Fake Lag", "Break LC"}, "Favor Fire Rate")
-G.profile_control("defensive_choke", "combo", "mode", {"Default", "Custom"}, "Default", nil, "Builder")
-G.profile_control("random_choke", "check", "randomize", nil, false, function() return G.get("defensive_choke") == "Custom" end, "Builder")
-G.profile_control("choke_slider", "slider", "choke", {1, 32}, 16, function() return G.get("defensive_choke") == "Custom" and not G.get("random_choke") end, "Builder")
-G.profile_control("choke_method", "combo", "method", {"Default", "Custom"}, "Default", function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") end, "Builder")
-G.profile_control("choke_from", "slider", "[1]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Builder")
-G.profile_control("choke_to", "slider", "[2]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Builder")
-G.profile_control("choke_sliders", "slider", "sliders", {2, 10}, 2, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end, "Builder")
-for i = 1, 10 do
-    G.profile_control("choke1_" .. i, "slider", "Choke " .. i, {1, 32}, 1, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" and G.get("choke_sliders") >= i end, "Builder")
-end
-
 G.add("freestanding", "check", "Freestanding", "Angles", "Hotkeys", nil, false)
 G.add("fs_key", "hotkey", "Freestanding key", "Angles", "Hotkeys", {inline=true}, nil, function() return G.get("freestanding") end)
 ui.set(G.controls.fs_key.ref, "On hotkey")
@@ -440,8 +413,6 @@ G.add("move_lean", "slider", "amount", "Other", nil, {0, 100, unit = "%"}, 0)
 G.add("jitter_legs", "check", "Jitter Legs", "Other", nil, nil, false)
 G.add("fast_ladder", "check", "Fast Ladder", "Other", nil, nil, false)
 G.add("unsafe_recharge", "check", "Unsafe Recharge", "Other", nil, nil, false)
-G.add("send_ct","button","send to ct","Angles","Builder",nil,nil,function() return G.editor_team=="T" end)
-G.add("send_t","button","send to t","Angles","Builder",nil,nil,function() return G.editor_team=="CT" end)
 G.add("grenade_release", "check", "Grenade Release", "Other", nil, nil, false)
 G.add("grenade_damage", "slider", "Damage", "Other", nil, {1, 50}, 33, function() return G.get("grenade_release") end)
 G.add("increase_speed", "check", "Increase speed", "Other", nil, nil, false)
@@ -498,9 +469,6 @@ G.controls.body_yaw.hidden=true
 G.controls.mode.hidden=true
 G.body_detail_keys={body_jitter=true,body_delay=true,inverter=true,mode_ticks=true,mode_random=true,
     limit_mode=true,left_limit=true,right_limit=true,from_limit=true,to_limit=true}
-G.defensive_detail_keys={break_triggers=true,hide_shots=true,defensive_choke=true,
-    random_choke=true,choke_slider=true,choke_method=true,choke_from=true,choke_to=true,choke_sliders=true}
-for i=1,10 do G.defensive_detail_keys["choke1_"..i]=true end
 G.other_parents={move_lean="lean_enabled",vm_fov="vm_enabled",vm_x="vm_enabled",vm_y="vm_enabled",vm_z="vm_enabled",knife_hand="vm_enabled",aspect="aspect_enabled",hit_marker="hit_enabled",crosshair_time="hit_enabled",world_time="hit_enabled",world_color="hit_enabled"}
 -- Collapsible panels affect visibility only. Every value in every profile is
 -- retained even while its panel is closed.
@@ -512,14 +480,11 @@ G.section("options_section","Brute",{"anti_bruteforce","brute_states","brute_mod
 G.section("options_section","Safe",{"safe_head","safe_conditions","safe_height"})
 G.section("options_section","Warmup",{"warmup","warmup_pitch","warmup_yaw","warmup_range","warmup_speed","warmup_left","warmup_right"})
 
-for _, team in ipairs(G.teams) do
-    G.profiles[team] = {}
-    for _, state in ipairs(G.states) do G.profiles[team][state] = G.profile_default() end
-end
+for _,state in ipairs(G.states) do G.profiles[state]=G.profile_default() end
 
 -- Versioned, validated JSON presets; no eval/loadstring is used on imports.
 G.non_setting = {master=true, page=true, angles_page=true,
-    team=true, state=true, preset_search=true, preset_name=true,
+    state=true, preset_search=true, preset_name=true,
     preset_list=true, options_section=true, manual_yaw=false,
     preset_action=true,body_mode=true,body_advanced=true}
 function G.setting(c, key)
@@ -568,6 +533,7 @@ function G.valid_profile(input)
         local value=input[key]
         if value~=nil then
             if input.body_format~=2 and (key=="left_limit" or key=="right_limit" or key=="from_limit" or key=="to_limit") and type(value)=="number" then
+                if value~=value or value==math.huge or value==-math.huge then error("Invalid number: "..key) end
                 value=math.min(58,math.abs(value))*((key=="left_limit" or key=="from_limit") and -1 or 1)
             end
             p[key]=G.validate_value(key,value)
@@ -582,19 +548,32 @@ function G.snapshot()
     return config
 end
 function G.apply_snapshot(input)
-    if type(input) ~= "table" or input.format ~= "gazolina-gamesense" or input.version ~= G.version then
-        error("Unsupported preset. Use a Gazolina GameSense v1 preset; Neverlose presets use a different format.")
+    if type(input)~="table" or input.format~="gazolina-gamesense" or (input.version~=1 and input.version~=G.version) then
+        error("Unsupported preset. Use a Gazolina GameSense preset (v1 or v2).")
     end
-    if type(input.profiles) ~= "table" or type(input.settings) ~= "table" then error("Incomplete preset") end
-    local profiles, settings = {}, {}
-    for _, team in ipairs(G.teams) do
-        if type(input.profiles[team]) ~= "table" then error("Missing team " .. team) end
-        profiles[team] = {}
-        for _, state in ipairs(G.states) do profiles[team][state] = G.valid_profile(input.profiles[team][state]) end
+    if type(input.profiles)~="table" or type(input.settings)~="table" then error("Incomplete preset") end
+    local profiles,settings={},{}
+    local legacy=input.version==1
+    local source_team
+    if legacy then
+        -- Select one old team deterministically; preserve the complete original
+        -- data in database before replacing the live two-team layout.
+        for _,team in ipairs({"T","CT"}) do
+            if type(input.profiles[team])~="table" then error("Missing legacy team "..team) end
+            for _,state in ipairs(G.states) do G.valid_profile(input.profiles[team][state]) end
+        end
+        local me=entity.get_local_player()
+        source_team=me and G.prop(me,"m_iTeamNum",0)==3 and "CT" or "T"
+        for _,state in ipairs(G.states) do
+            profiles[state]=G.valid_profile(input.profiles[source_team][state])
+        end
+    else
+        for _,state in ipairs(G.states) do profiles[state]=G.valid_profile(input.profiles[state]) end
     end
     for key, c in pairs(G.controls) do
         if G.setting(c, key) and input.settings[key] ~= nil then settings[key] = G.validate_value(key, input.settings[key]) end
     end
+    if legacy then settings.override=true elseif input.settings.override==nil then settings.override=false end
     -- Older presets had always-on Viewmodel/Aspect and no explicit feature
     -- checkboxes. Preserve that behavior once when migrating their settings.
     if input.settings.vm_enabled==nil then settings.vm_enabled=true end
@@ -602,6 +581,7 @@ function G.apply_snapshot(input)
     if input.settings.lean_enabled==nil then settings.lean_enabled=type(input.settings.move_lean)=="number" and input.settings.move_lean>=0 end
     if input.settings.hit_enabled==nil then settings.hit_enabled=type(input.settings.hit_marker)=="table" and #input.settings.hit_marker>0 end
     -- Validation completes before mutating any live setting.
+    if legacy then database.write(G.db_key.."_legacy_v1_backup",G.copy(input)) end
     if G.stop then G.stop() end
     local old = G.loading; G.loading = true
     G.profiles = profiles
@@ -612,10 +592,11 @@ function G.apply_snapshot(input)
     G.runtime.last_manual = G.get("manual_yaw")
     if G.check_capabilities then G.check_capabilities() end
     G.visibility()
+    if legacy then G.log("Migrated "..source_team.." profiles to shared states. Original T/CT data saved in database (legacy_v1_backup).") end
 end
 function G.decode(text)
     if type(text) ~= "string" or #text > 524288 then error("Invalid or oversized preset") end
-    text = text:gsub("^GAZOLINA_GS1:", "")
+    text = text:gsub("^GAZOLINA_GS[12]:", "")
     local input = json.parse(text)
     if type(input) ~= "table" then error("Invalid JSON preset") end
     return input
@@ -672,13 +653,6 @@ function G.save_preset()
     G.preset_info(); G.log("Successfully saved config (" .. name .. ")")
 end
 G.actions = {
-    send_team = function()
-        G.sync_editor_team();G.save_editor()
-        local other=G.editor_team=="T" and "CT" or "T"
-        G.profiles[other]=G.copy(G.profiles[G.editor_team])
-        G.log("Sent all 9 builder states from "..G.editor_team.." to "..other)
-        G.visibility()
-    end,
     copy = function() G.guarded(function()
         G.save_editor(); G.clip_set("GAZOLINA_STATE1:" .. json.stringify(G.profile())); G.log("Copied current state into clipboard.")
     end) end,
@@ -686,22 +660,16 @@ G.actions = {
         local data = G.clip_get()
         if type(data) ~= "string" or not data:find("^GAZOLINA_STATE1:") or #data > 32768 then error("Invalid state clipboard data") end
         local p = G.valid_profile(json.parse(data:sub(17)))
-        G.profiles[G.editor_team][G.editor_state] = p; G.load_editor(); G.visibility()
+        G.profiles[G.editor_state] = p; G.load_editor(); G.visibility()
         G.log("Imported data into selected state.")
     end) end,
-    opposite = function()
-        G.save_editor(); local other = G.editor_team == "T" and "CT" or "T"
-        G.profiles[other][G.editor_state] = G.copy(G.profile())
-        G.log("Sent " .. G.editor_state .. " settings to " .. other)
-    end,
     reset_state = function()
-        G.profiles[G.editor_team][G.editor_state] = G.profile_default()
+        G.profiles[G.editor_state] = G.profile_default()
         G.load_editor(); G.visibility()
-        G.log("Reset " .. G.editor_team .. " / " .. G.editor_state)
+        G.log("Reset " .. G.editor_state)
     end,
     shuffle_delay = function() for i=1,G.get("delay_custom_sliders") do G.set("delay_" .. i, G.random(1,10)) end end,
     shuffle_modifier = function() for i=1,G.get("randomize_custom_sliders") do G.set("randomize_" .. i, G.random(-30,30)) end end,
-    shuffle_choke = function() for i=1,G.get("choke_sliders") do G.set("choke1_" .. i, G.random(1,32)) end end,
     preset_new = function() G.guarded(G.save_preset) end,
     preset_save = function() G.guarded(G.save_preset) end,
     preset_load = function() G.guarded(function()
@@ -715,7 +683,7 @@ G.actions = {
     end) end,
     preset_export = function() G.guarded(function()
         local name = G.selected_preset(); if not name then error("No preset selected") end
-        G.clip_set("GAZOLINA_GS1:" .. json.stringify(G.presets[name].config))
+        G.clip_set("GAZOLINA_GS"..tostring(G.presets[name].config.version)..":" .. json.stringify(G.presets[name].config))
         G.log("Successfully exported config (" .. name .. ")")
     end) end,
     preset_import = function() G.guarded(function()
@@ -832,16 +800,16 @@ function G.body_delay(p)
     return p.body_delay
 end
 function G.aa(me,cmd)
+    if not G.builder_enabled() then G.release_angles();G.reset_aa_clock();return end
     local r=G.runtime
     local state=G.current_state(me,cmd)
-    local team=G.prop(me,"m_iTeamNum",0)==2 and "T" or "CT"
-    r.active_team=team; r.active_state=state
-    local p=G.profiles[team][state]
+    local p=G.profiles[state]
+    local profile_key=state
+    r.active_state=state;r.active_profile=profile_key
     local sent=cmd.chokedcommands==0
     if sent then r.sent=r.sent+1 end
     local ctx={pitch=p.pitch or "Down",yaw_base="At targets",offset=0,modifier=p.yaw_modifier,
         modifier_offset=p.modifier_offset,body=p.body_yaw,freestanding=false}
-    local profile_key=team..":"..state
     if r.aa_profile~=profile_key then
         r.aa_profile=profile_key;r.side=false;r.last_flip=r.sent-(sent and 1 or 0)
         r.yaw_interval=nil;r.body_side=false;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil
@@ -896,12 +864,10 @@ function G.aa(me,cmd)
         if mode=="L&R" then ctx.offset=math.floor(r.sent/2)%2==0 and G.get("warmup_left") or G.get("warmup_right")
         elseif mode=="Distortion" then r.warmup_offset=r.warmup_offset+globals.tickinterval()*speed; ctx.offset=math.sin(r.warmup_offset)*range
         else r.warmup_offset=r.warmup_offset+speed/100*14; ctx.offset=range>0 and r.warmup_offset%range or 0 end
-        G.release("dt_fl")
     else
         if G.get("anti_bruteforce") and G.has(G.get("brute_states"),state) and globals.realtime()<r.brute_until then
             ctx.offset=ctx.offset+(r.side and r.brute_offset or -r.brute_offset)
         end
-        G.defensive(me,cmd,p,state)
         local fs=G.get("freestanding") and G.get("fs_key") and not G.has(G.get("fs_disablers"),state)
         ctx.freestanding=fs
         if fs and G.get("fs_modifiers") then ctx.modifier="Disabled" end
@@ -914,48 +880,6 @@ function G.aa(me,cmd)
     G.anti_backstab(me,ctx)
     G.apply_aa(ctx,cmd)
     r.last_context=G.copy(ctx)
-end
-function G.weapon_reloading(me,weapon,cmd)
-    if cmd.in_reload==1 then return true end
-    local ok,value=pcall(entity.get_prop,weapon,"m_bInReload")
-    if ok and (value==1 or value==true) then return true end
-    if G.entity_lib then
-        local ent=G.entity_lib.get_local_player()
-        if ent and ent.get_sequence_activity and ent.get_anim_overlay then
-            local layer=ent:get_anim_overlay(1)
-            if layer and layer.weight>0 then
-                return ent:get_sequence_activity(layer.sequence)==967
-            end
-        end
-    end
-    return false
-end
-function G.defensive(me,cmd,p,state)
-    local r=G.runtime; local weapon=entity.get_player_weapon(me)
-    if not weapon or not p.defensive_enabled or G.prop(weapon,"m_fThrowTime",0)~=0 then G.release("dt_fl"); r.last_weapon=weapon; return end
-    local force=false
-    if p.defensive_choke=="Default" then force=true
-    else
-        local interval=p.choke_slider
-        if p.random_choke then
-            interval=p.choke_method=="Custom" and p["choke1_"..G.random(1,p.choke_sliders)] or G.random(p.choke_from,p.choke_to)
-        end
-        force=globals.tickcount()%math.max(1,interval)==0
-    end
-    local triggers=G.get("break_triggers")
-    if G.has(triggers,"Weapon Swap") and r.last_weapon and weapon~=r.last_weapon then force=true end
-    local reload=G.weapon_reloading(me,weapon,cmd)
-    if G.has(triggers,"Weapon Reload") and reload then force=true end
-    r.last_weapon=weapon
-    -- GameSense exposes the force_defensive usercmd flag; it cannot reproduce
-    -- Neverlose's internal exploit charge or its three Hide Shots policies.
-    if G.active_ref("dt") or G.active_ref("hs") then
-        cmd.force_defensive=force
-        local policy=G.get("hide_shots")
-        if policy=="Favor Fake Lag" then G.override("dt_fl",1,2)
-        elseif policy=="Break LC" then G.override("dt_fl",1,1)
-        else G.release("dt_fl") end
-    else G.release("dt_fl") end
 end
 function G.apply_aa(ctx,cmd)
     local offset=ctx.offset
@@ -1390,7 +1314,7 @@ function G.paint()
 end
 
 function G.bullet_impact(e)
-    if not G.is_enabled() or not G.get("anti_bruteforce") then return end
+    if not G.builder_enabled() or not G.get("anti_bruteforce") then return end
     local me=entity.get_local_player(); local attacker=client.userid_to_entindex(e.userid)
     if not me or not entity.is_alive(me) or not attacker or not entity.is_enemy(attacker) then return end
     local state=G.current_state(me,{in_jump=0})
@@ -1459,16 +1383,16 @@ function G.item_purchase(e)
     if buyer then G.log(entity.get_player_name(buyer).." bought "..tostring(e.weapon)) end
 end
 function G.release_angles()
-    for _,key in ipairs({"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit","dt_fl"}) do G.release(key) end
+    for _,key in ipairs({"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit"}) do G.release(key) end
 end
 function G.stop()
     G.cancel_recharge()
     G.post_render(); G.restore_refs(); G.restore_cvars()
     local r=G.runtime
-    r.running=false; r.brute_until=0; r.last_weapon=nil; r.unlock_command=0; r.locked=nil
+    r.running=false; r.brute_until=0; r.unlock_command=0; r.locked=nil
     r.hit_until=-100; r.world_until=-100; r.world_pos=nil
     r.scope_alpha=0; r.arrow_alpha=0; r.manual_keys={}
-    r.active_team=nil; r.active_state=nil; r.last_context=nil
+    r.active_state=nil;r.active_profile=nil;r.last_context=nil
     r.side=false; r.sent=0; r.last_flip=0; r.warmup_offset=0; r.status_time=nil
     r.aa_profile=nil;r.yaw_interval=nil;r.body_config=nil;r.body_side=false;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil
     G.shots={}
@@ -1481,7 +1405,6 @@ function G.setup_command(cmd)
     if not me or not entity.is_alive(me) then G.cancel_recharge(); G.release_angles(); G.unlock_movement(); return end
     local team=G.prop(me,"m_iTeamNum",0)
     if team~=2 and team~=3 then G.cancel_recharge(); G.release_angles(); return end
-    if G.sync_editor_team() then G.visibility() end
     G.aa(me,cmd)
     G.fast_ladder(me,cmd)
     G.fakeduck_speed(me,cmd)
@@ -1489,7 +1412,6 @@ function G.setup_command(cmd)
     G.unsafe_recharge(me,cmd)
 end
 function G.paint_ui()
-    if G.sync_editor_team() then G.visibility() end
     if G.runtime.recharge then
         local me=entity.get_local_player()
         if not G.is_enabled() or not me or not entity.is_alive(me) or not G.active_ref("dt") or globals.tickcount()>G.runtime.recharge.deadline then G.cancel_recharge() end
@@ -1518,9 +1440,10 @@ for _,key in ipairs(G.order) do
             if G.loading then return end
             if key=="body_mode" then
                 G.edit_from_view(key)
-            elseif key=="team" or key=="state" then
-                G.save_editor(); G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
+            elseif key=="state" then
+                G.save_editor();G.editor_state=G.get("state");G.load_editor()
             elseif c.profile then G.save_editor()
+            elseif key=="override" then G.release_angles();G.reset_aa_clock()
             elseif key=="master" then if not G.is_enabled() then G.stop() end
             elseif key=="anti_bruteforce" and not G.get("anti_bruteforce") then G.runtime.brute_until=0
             elseif key=="preset_search" then G.update_presets()
@@ -1549,9 +1472,8 @@ end
 G.loading=false
 local saved=database.read(G.db_key.."_current")
 if saved then G.guarded(function() G.apply_snapshot(saved) end) else G.load_editor() end
-G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
+G.editor_state=G.get("state");G.load_editor()
 G.check_capabilities()
-G.sync_editor_team()
 G.update_presets(); G.visibility()
 G.listen("setup_command",G.setup_command)
 G.listen("paint_ui",G.paint_ui)
@@ -1584,7 +1506,7 @@ G.listen("post_config_save",function() G.visibility() end)
 G.listen("pre_config_load",function() G.stop(); G.loading=true end)
 G.listen("post_config_load",function()
     G.loading=false
-    G.editor_team=G.get("team"); G.editor_state=G.get("state")
+    G.editor_state=G.get("state")
     local data=ui.get(G.storage)
     if data and data~="" then G.guarded(function() G.apply_snapshot(G.decode(data)) end)
     else G.load_editor() end
