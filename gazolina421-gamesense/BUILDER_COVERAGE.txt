@@ -1,8 +1,9 @@
-GAZOLINA 421 — схема Builder, редакция 1.6
+GAZOLINA 421 — схема Builder, редакция 1.7
 
 9 профилей State, общие для T и CT; каждый содержит 50 полей.
 Override один на весь Builder, хранится в settings, не в профилях.
-State — combobox. Shared, команда редактора и send to ct/t отсутствуют.
+State — нативный combobox с inline-адаптером справа от Override.
+Профильные данные и формат v2 относительно 1.6 не изменены. Shared, команда редактора и send to ct/t отсутствуют.
 Defensive/Choke/Hide Shots/Action Triggers и обработчик удалены по запросу.
 Оставшиеся исходные yaw/body поля сохранены; новые поля Pitch и body_delay.
 Body limits: -58..58; mode_ticks/mode_random: 1..32; body_jitter default=false.
