@@ -1,11 +1,11 @@
--- Gazolina 421 | GameSense CS:GO port | revision 1.3
+-- Gazolina 421 | GameSense CS:GO port | revision 1.4
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
--- Menu: AA -> Anti-aimbot angles. LuaJIT 5.1.
+-- Menu: AA; builder in Anti-aimbot angles, Other spans all three blocks. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
 -- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 1, revision = "1.3", controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 1, revision = "1.4", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
     teams = {"T", "CT"}, editor_team = "T", editor_state = "Standing",
@@ -107,32 +107,46 @@ G.find("dt_fl", "RAGE", "Aimbot", "Double tap fake lag limit")
 G.find("hs", "AA", "Other", "On shot anti-aim")
 G.find("scope", "VISUALS", "Effects", "Remove scope overlay")
 G.find("ping", "MISC", "Miscellaneous", "Ping spike")
-G.find("shared", "VISUALS", "Player ESP", "Shared ESP")
 G.find("strafe", "MISC", "Movement", "Air strafe")
 G.find("bhop", "MISC", "Movement", "Bunny hop")
 G.find("quick_stop", "MISC", "Movement", "Fast walk")
+G.find("fl_enabled", "AA", "Fake lag", "Enabled")
+G.find("fl_amount", "AA", "Fake lag", "Amount")
+G.find("fl_variance", "AA", "Fake lag", "Variance")
+G.find("fl_limit", "AA", "Fake lag", "Limit")
+G.find("fake_peek", "AA", "Other", "Fake peek")
 
 G.native_angle_keys={"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit","edge","roll"}
-function G.restore_native_visibility()
-    local cache=G.native_visibility
+G.native_other_keys={"fl_enabled","fl_amount","fl_variance","fl_limit","slow","legs","hs","fake_peek"}
+function G.restore_visibility_cache(name)
+    local cache=G[name]
     if not cache then return end
-    G.native_visibility=nil
+    G[name]=nil
     for ref,visible in pairs(cache) do pcall(ui.set_visible,ref,visible) end
 end
-function G.sync_native_visibility()
-    if not G.get("master") then G.restore_native_visibility();return end
-    if not G.native_visibility then
-        G.native_visibility={}
-        for _,key in ipairs(G.native_angle_keys) do
+function G.restore_native_visibility()
+    G.restore_visibility_cache("native_visibility")
+    G.restore_visibility_cache("native_other_visibility")
+end
+function G.hide_native_keys(keys,name)
+    if not G[name] then
+        G[name]={}
+        for _,key in ipairs(keys) do
             for _,ref in ipairs(G.refs[key] or {}) do
                 local visible=true
                 local getter=ui.get_visible or ui.is_visible
                 if getter then local ok,value=pcall(getter,ref);if ok and type(value)=="boolean" then visible=value end end
-                G.native_visibility[ref]=visible
+                G[name][ref]=visible
             end
         end
     end
-    for ref in pairs(G.native_visibility) do ui.set_visible(ref,false) end
+    for ref in pairs(G[name]) do ui.set_visible(ref,false) end
+end
+function G.sync_native_visibility()
+    if not G.get("master") then G.restore_native_visibility();return end
+    G.hide_native_keys(G.native_angle_keys,"native_visibility")
+    if G.get("page")=="Other" then G.hide_native_keys(G.native_other_keys,"native_other_visibility")
+    else G.restore_visibility_cache("native_other_visibility") end
 end
 
 function G.active_ref(key)
@@ -171,8 +185,8 @@ end
 function G.cv(name, value)
     local cv = cvar[name]; if not cv then return end
     if not G.cv_cache[name] then G.cv_cache[name] = {cv = cv, value = cv:get_float()} end
-    cv:set_raw_float(value)
-    cv:set_raw_int(math.floor(value))
+    if cv:get_float()~=value then cv:set_raw_float(value) end
+    if cv:get_int()~=math.floor(value) then cv:set_raw_int(math.floor(value)) end
 end
 function G.release_cv(name)
     local old = G.cv_cache[name]
@@ -190,29 +204,33 @@ function G.display_choice(key,value)
     if (key=="yaw_modifier" or key=="pitch") and value=="Disabled" then return "off" end
     return type(value)=="string" and value:lower() or value
 end
+G.other_locations={}
+for _,key in ipairs({"hit_enabled","hit_marker","crosshair_time","world_time","world_color","manual_arrows","arrows_font","left_symbol","right_symbol","forward_symbol","arrows_offset","arrows_color","keep_transparency","extended_ping","ping_key","fake_latency"}) do G.other_locations[key]="Fake lag" end
+for _,key in ipairs({"lean_enabled","move_lean","jitter_legs","fast_ladder","no_fall_damage","grenade_release","grenade_damage","increase_speed","purchases","damage_dealt","log_prefix","log_main"}) do G.other_locations[key]="Other" end
 function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     -- Buttons render embedded newlines literally in GameSense. Keep their
     -- names short and single-line; other controls retain their config IDs.
     local name = kind=="button" and label or (label .. "\nGazolina421_" .. key)
+    local container=page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles"
     if kind == "slider" then default = G.clamp(math.floor(default or opts[1]), opts[1], opts[2]) end
     local ref, color_label
-    if kind == "check" then ref = ui.new_checkbox("AA", "Anti-aimbot angles", name)
+    if kind == "check" then ref = ui.new_checkbox("AA", container, name)
     elseif kind == "combo" then
         local choices={};for i,value in ipairs(opts) do choices[i]=G.display_choice(key,value) end
-        ref = ui.new_combobox("AA", "Anti-aimbot angles", name, unpack(choices))
-    elseif kind == "multi" then ref = ui.new_multiselect("AA", "Anti-aimbot angles", name, unpack(opts))
+        ref = ui.new_combobox("AA", container, name, unpack(choices))
+    elseif kind == "multi" then ref = ui.new_multiselect("AA", container, name, unpack(opts))
     elseif kind == "slider" then
-        ref = ui.new_slider("AA", "Anti-aimbot angles", name, opts[1], opts[2], default or opts[1], true, opts.unit or "", opts.scale or 1, opts.tips)
+        ref = ui.new_slider("AA", container, name, opts[1], opts[2], default or opts[1], true, opts.unit or "", opts.scale or 1, opts.tips)
     elseif kind == "color" then
-        color_label = ui.new_label("AA", "Anti-aimbot angles", label)
-        ref = ui.new_color_picker("AA", "Anti-aimbot angles", name, unpack(default))
-    elseif kind == "text" then ref = ui.new_textbox("AA", "Anti-aimbot angles", name)
-    elseif kind == "label" then ref = ui.new_label("AA", "Anti-aimbot angles", label)
-    elseif kind == "button" then ref = ui.new_button("AA", "Anti-aimbot angles", name, function() G.invoke(key) end)
-    elseif kind == "list" then ref = ui.new_listbox("AA", "Anti-aimbot angles", name, opts)
-    elseif kind == "hotkey" then ref = ui.new_hotkey("AA", "Anti-aimbot angles", name, false)
+        color_label = ui.new_label("AA", container, label)
+        ref = ui.new_color_picker("AA", container, name, unpack(default))
+    elseif kind == "text" then ref = ui.new_textbox("AA", container, name)
+    elseif kind == "label" then ref = ui.new_label("AA", container, label)
+    elseif kind == "button" then ref = ui.new_button("AA", container, name, function() G.invoke(key) end)
+    elseif kind == "list" then ref = ui.new_listbox("AA", container, name, opts)
+    elseif kind == "hotkey" then ref = ui.new_hotkey("AA", container, name, opts and opts.inline or false)
     end
-    local item = {ref = ref, color_label = color_label, kind = kind, page = page, part = part, opts = opts, default = G.copy(default), predicate = predicate, profile = profile}
+    local item = {ref = ref, color_label = color_label, container=container, inline=kind=="hotkey" and opts and opts.inline or false,kind = kind, page = page, part = part, opts = opts, default = G.copy(default), predicate = predicate, profile = profile}
     G.controls[key] = item; G.order[#G.order + 1] = key
     if profile then G.profile_schema[#G.profile_schema + 1] = key end
     if default ~= nil and kind ~= "slider" and kind ~= "label" and kind ~= "button" then
@@ -255,23 +273,15 @@ function G.refresh_editor_view()
     if not G.controls.body_mode or not G.profiles[G.editor_team] then return end
     local p=G.profile()
     local old=G.loading;G.loading=true
-    G.set("add_yaw",p.yaw==1)
     G.set("body_mode",p.body_yaw and p.mode or "Off")
-    G.set("force_break_lc",G.has(G.get("break_lc"),G.editor_state))
     G.loading=old
 end
 function G.edit_from_view(key)
     local old=G.loading;G.loading=true
-    if key=="add_yaw" then G.set("yaw",G.get("add_yaw") and 1 or 0)
-    elseif key=="body_mode" then
+    if key=="body_mode" then
         local mode=G.get("body_mode")
         G.set("body_yaw",mode~="Off")
         if mode~="Off" then G.set("mode",mode) end
-    elseif key=="force_break_lc" then
-        local states={}
-        for _,state in ipairs(G.get("break_lc")) do if state~=G.editor_state then states[#states+1]=state end end
-        if G.get("force_break_lc") then states[#states+1]=G.editor_state end
-        G.set("break_lc",states)
     end
     G.loading=old
     G.save_editor()
@@ -297,13 +307,13 @@ function G.visibility()
         local visible = true
         if c.page then visible = enabled and (c.page == "*" or c.page == page) end
         if visible and c.part then
-            local part=G.get(page == "Angles" and "angles_page" or "other_page")
-            if page=="Angles" and part=="Builder" and c.part=="Tickbase" and G.builder_defensive_keys and G.builder_defensive_keys[key] then
-                visible=G.get("builder_defensive")
-            else visible=c.part==part end
+            visible=page=="Angles" and c.part==G.get("angles_page")
         end
         if visible and c.predicate then visible = c.predicate() end
         if visible and G.body_detail_keys and G.body_detail_keys[key] then visible=G.get("body_advanced") end
+        if visible and G.defensive_detail_keys and G.defensive_detail_keys[key] then visible=G.get("defensive_enabled") end
+        if visible and G.other_parents and G.other_parents[key] then visible=G.get(G.other_parents[key]) end
+        if visible and (key=="log_prefix" or key=="log_main") then visible=G.get("purchases") or G.get("damage_dealt") end
         if visible and G.sections and G.sections[key] then
             local section=G.sections[key]
             visible=G.get(section.target)==section.value
@@ -321,16 +331,15 @@ end
 
 G.add("master", "check", "Gazolina", nil, nil, nil, false)
 G.add("page", "combo", "", "*", nil, {"Presets", "Angles", "Other"}, "Angles")
-G.add("angles_page", "combo", "", "Angles", nil, {"Builder", "Tickbase", "Hotkeys", "Options"}, "Builder")
+G.add("angles_page", "combo", "", "Angles", nil, {"Builder", "Hotkeys", "Options"}, "Builder")
 G.add("profile_options","check","profile options","Angles","Builder",nil,false)
-G.add("team", "combo", "team", "Angles", nil, G.teams, "T", function() return G.get("angles_page")=="Tickbase" or (G.get("angles_page")=="Builder" and G.get("profile_options")) end)
-G.add("state", "combo", "\aB4CE00FFstate", "Angles", nil, G.states, "Standing", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
+G.add("team", "combo", "team", "Angles", nil, G.teams, "T", function() return G.get("angles_page")=="Builder" and G.get("profile_options") end)
+G.add("state", "combo", "\aB4CE00FFstate", "Angles", nil, G.states, "Standing", function() return G.get("angles_page")=="Builder" end)
 G.add("profile_action","combo","action","Angles","Builder",{"Copy","Paste","Other team","Reset","Shuffle timing","Shuffle offsets","Shuffle choke"},"Copy",function() return G.get("profile_options") end)
 G.add("profile_apply","button","apply","Angles","Builder",nil,nil,function() return G.get("profile_options") end)
 G.profile_control("pitch","combo","pitch",{"Disabled","Down","Up","Minimal","Random"},"Down")
-G.profile_control("yaw", "slider", "mode", {0, 1, tips = {[0] = "Off", [1] = "Dual"}}, 0)
-G.profile_control("yaw_offset", "slider", "yaw offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
-G.add("add_yaw","check","~ add yaw","Angles","Builder",nil,false)
+G.profile_control("yaw", "slider", "yaw", {0, 1, tips = {[0] = "Solo", [1] = "Double"}}, 0)
+G.profile_control("yaw_offset", "slider", "offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
 G.profile_control("left_yaw", "slider", "left yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
 G.profile_control("right_yaw", "slider", "right yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
 G.profile_control("apply_delay", "check", "apply delay", nil, false, function() return G.get("yaw") == 1 end)
@@ -366,29 +375,27 @@ G.profile_control("right_limit", "slider", "right limit", {0, 60}, 60, function(
 G.profile_control("from_limit", "slider", "from", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 G.profile_control("to_limit", "slider", "to", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 
-G.add("force_break_lc","check","\aB4CE00FFforce break lc","Angles","Builder",nil,false)
-G.add("builder_defensive","check","defensive settings","Angles","Builder",nil,false)
-G.add("break_lc", "multi", "Break LC", "Angles", "Tickbase", G.states, {})
-G.add("break_triggers", "multi", "Action Triggers", "Angles", "Tickbase", {"Weapon Swap", "Weapon Reload"}, {})
-G.add("hide_shots", "combo", "Hide Shots", "Angles", "Tickbase", {"Favor Fire Rate", "Favor Fake Lag", "Break LC"}, "Favor Fire Rate")
-G.profile_control("defensive_choke", "combo", "mode", {"Default", "Custom"}, "Default", nil, "Tickbase")
-G.profile_control("random_choke", "check", "randomize", nil, false, function() return G.get("defensive_choke") == "Custom" end, "Tickbase")
-G.profile_control("choke_slider", "slider", "choke", {1, 32}, 16, function() return G.get("defensive_choke") == "Custom" and not G.get("random_choke") end, "Tickbase")
-G.profile_control("choke_method", "combo", "method", {"Default", "Custom"}, "Default", function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") end, "Tickbase")
-G.profile_control("choke_from", "slider", "[1]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Tickbase")
-G.profile_control("choke_to", "slider", "[2]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Tickbase")
-G.profile_control("choke_sliders", "slider", "sliders", {2, 10}, 2, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end, "Tickbase")
+G.profile_control("defensive_enabled","check","defensive",nil,false)
+G.add("break_triggers", "multi", "Action Triggers", "Angles", "Builder", {"Weapon Swap", "Weapon Reload"}, {})
+G.add("hide_shots", "combo", "Hide Shots", "Angles", "Builder", {"Favor Fire Rate", "Favor Fake Lag", "Break LC"}, "Favor Fire Rate")
+G.profile_control("defensive_choke", "combo", "mode", {"Default", "Custom"}, "Default", nil, "Builder")
+G.profile_control("random_choke", "check", "randomize", nil, false, function() return G.get("defensive_choke") == "Custom" end, "Builder")
+G.profile_control("choke_slider", "slider", "choke", {1, 32}, 16, function() return G.get("defensive_choke") == "Custom" and not G.get("random_choke") end, "Builder")
+G.profile_control("choke_method", "combo", "method", {"Default", "Custom"}, "Default", function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") end, "Builder")
+G.profile_control("choke_from", "slider", "[1]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Builder")
+G.profile_control("choke_to", "slider", "[2]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Builder")
+G.profile_control("choke_sliders", "slider", "sliders", {2, 10}, 2, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end, "Builder")
 for i = 1, 10 do
-    G.profile_control("choke1_" .. i, "slider", "Choke " .. i, {1, 32}, 1, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" and G.get("choke_sliders") >= i end, "Tickbase")
+    G.profile_control("choke1_" .. i, "slider", "Choke " .. i, {1, 32}, 1, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" and G.get("choke_sliders") >= i end, "Builder")
 end
 
 G.add("freestanding", "check", "Freestanding", "Angles", "Hotkeys", nil, false)
-G.add("fs_key", "hotkey", "Freestanding key", "Angles", "Hotkeys")
-ui.set(G.controls.fs_key.ref, "Always on")
-G.add("prefer_manual", "check", "Prefer Manual", "Angles", "Hotkeys", nil, false)
-G.add("fs_disablers", "multi", "Disablers", "Angles", "Hotkeys", G.states, {})
-G.add("fs_modifiers", "check", "Disable Yaw Modifiers", "Angles", "Hotkeys", nil, false)
-G.add("fs_body", "check", "Body Freestanding", "Angles", "Hotkeys", nil, false)
+G.add("fs_key", "hotkey", "Freestanding key", "Angles", "Hotkeys", {inline=true}, nil, function() return G.get("freestanding") end)
+ui.set(G.controls.fs_key.ref, "On hotkey")
+G.add("prefer_manual", "check", "Prefer Manual", "Angles", "Hotkeys", nil, false, function() return G.get("freestanding") end)
+G.add("fs_disablers", "multi", "Disablers", "Angles", "Hotkeys", G.states, {}, function() return G.get("freestanding") end)
+G.add("fs_modifiers", "check", "Disable Yaw Modifiers", "Angles", "Hotkeys", nil, false, function() return G.get("freestanding") end)
+G.add("fs_body", "check", "Body Freestanding", "Angles", "Hotkeys", nil, false, function() return G.get("freestanding") end)
 G.add("manual_yaw", "combo", "Manual Yaw", "Angles", "Hotkeys", {"Disabled", "Left", "Right", "Forward"}, "Disabled")
 G.add("manual_base", "combo", "Yaw Base", "Angles", "Hotkeys", {"Local View", "At Target"}, "Local View")
 G.add("manual_left", "hotkey", "Manual Left", "Angles", "Hotkeys")
@@ -410,53 +417,50 @@ G.add("warmup_speed", "slider", "Speed", "Angles", "Options", {0, 100, unit = "%
 G.add("warmup_left", "slider", "Left", "Angles", "Options", {-180, 180}, 0, function() return G.get("warmup") and G.get("warmup_yaw") == "L&R" end)
 G.add("warmup_right", "slider", "Right", "Angles", "Options", {-180, 180}, 0, function() return G.get("warmup") and G.get("warmup_yaw") == "L&R" end)
 
-G.add("other_page", "combo", "", "Other", nil, {"Animations", "Movement", "Visuals", "Log Events", "Shared ESP"}, "Visuals")
-G.add("visuals_section","combo","","Other","Visuals",{"View","Scope","Hits","Arrows","Extra"},"View")
-G.add("move_lean", "slider", "Move Lean", "Other", "Animations", {-1, 100, tips = {[-1] = "Disabled"}, unit = "%"}, 0)
-G.add("jitter_legs", "check", "Jitter Legs", "Other", "Animations", nil, false)
-G.add("animation_note", "label", "Move Lean needs gamesense/entity.", "Other", "Animations", nil, nil, function() return not G.entity_lib end)
-G.add("fast_ladder", "check", "Fast Ladder", "Other", "Movement", nil, false)
-G.add("no_fall_damage", "check", "No Fall Damage", "Other", "Movement", nil, false)
-G.add("grenade_release", "check", "Grenade Release", "Other", "Movement", nil, false)
-G.add("grenade_damage", "slider", "Damage", "Other", "Movement", {1, 50}, 33, function() return G.get("grenade_release") end)
-G.add("increase_speed", "check", "Increase speed", "Other", "Movement", nil, false)
-G.add("movement_note", "label", "No Fall Damage / Grenade Release need gamesense/trace.", "Other", "Movement", nil, nil, function() return not (G.trace_lib and G.vector_lib) end)
-G.add("viewmodel_header", "label", "\a9CA7E1FFViewmodel", "Other", "Visuals")
-G.add("vm_fov", "slider", "Field of View", "Other", "Visuals", {0, 1000, scale = .1}, math.floor(cvar.viewmodel_fov:get_float() * 10))
-G.add("vm_x", "slider", "Offset X", "Other", "Visuals", {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_x:get_float() * 10))
-G.add("vm_y", "slider", "Offset Y", "Other", "Visuals", {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_y:get_float() * 10))
-G.add("vm_z", "slider", "Offset Z", "Other", "Visuals", {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_z:get_float() * 10))
-G.add("knife_hand", "check", "Opposite Knife Hand", "Other", "Visuals", nil, false)
-G.add("aspect", "slider", "Aspect Ratio", "Other", "Visuals", {1, 200, scale = .01}, 133)
-G.add("scope_overlay", "check", "Scope Overlay", "Other", "Visuals", nil, false)
-G.add("scope_type", "combo", "Color", "Other", "Visuals", {"Simple", "Double"}, "Simple", function() return G.get("scope_overlay") end)
-G.add("scope_simple", "color", "Simple", "Other", "Visuals", nil, {255, 255, 255, 155}, function() return G.get("scope_overlay") and G.get("scope_type") == "Simple" end)
-G.add("scope_a", "color", "Double [1]", "Other", "Visuals", nil, {255, 255, 255, 255}, function() return G.get("scope_overlay") and G.get("scope_type") == "Double" end)
-G.add("scope_b", "color", "Double [2]", "Other", "Visuals", nil, {0, 0, 0, 0}, function() return G.get("scope_overlay") and G.get("scope_type") == "Double" end)
-G.add("scope_length", "slider", "Length", "Other", "Visuals", {5, 300}, 180, function() return G.get("scope_overlay") end)
-G.add("scope_offset", "slider", "Offset", "Other", "Visuals", {1, 100}, 5, function() return G.get("scope_overlay") end)
-G.add("hit_marker", "multi", "Hit Marker", "Other", "Visuals", {"Crosshair", "3D"}, {})
-G.add("crosshair_time", "slider", "Crosshair Time", "Other", "Visuals", {3, 100, scale = .1, unit = "s", tips = {[3] = "GameSense"}}, 3, function() return G.has(G.get("hit_marker"), "Crosshair") end)
-G.add("world_time", "slider", "3D Time", "Other", "Visuals", {3, 100, scale = .1, unit = "s"}, 20, function() return G.has(G.get("hit_marker"), "3D") end)
-G.add("world_color", "color", "3D Color", "Other", "Visuals", nil, {255, 255, 255, 255}, function() return G.has(G.get("hit_marker"), "3D") end)
-G.add("manual_arrows", "check", "Manual Arrows", "Other", "Visuals", nil, false)
-G.add("arrows_font", "combo", "Font", "Other", "Visuals", {"Default", "Small", "Console", "Bold"}, "Default", function() return G.get("manual_arrows") end)
-G.add("left_symbol", "text", "Left Symbol", "Other", "Visuals", nil, "<", function() return G.get("manual_arrows") end)
-G.add("right_symbol", "text", "Right Symbol", "Other", "Visuals", nil, ">", function() return G.get("manual_arrows") end)
-G.add("forward_symbol", "text", "Forward Symbol", "Other", "Visuals", nil, "^", function() return G.get("manual_arrows") end)
-G.add("arrows_offset", "slider", "Offset", "Other", "Visuals", {0, 120}, 60, function() return G.get("manual_arrows") end)
-G.add("arrows_color", "color", "Arrow Color", "Other", "Visuals", nil, {255, 255, 255, 255}, function() return G.get("manual_arrows") end)
-G.add("keep_transparency", "check", "Keep Model Transparency", "Other", "Visuals", nil, false)
-G.add("extended_ping", "check", "Extended Ping Spike", "Other", "Visuals", nil, false)
-G.add("fake_latency", "slider", "Fake Latency", "Other", "Visuals", {0, 200, unit = "ms"}, 0, function() return G.get("extended_ping") end)
-G.add("ping_key", "hotkey", "Fake Latency key", "Other", "Visuals", nil, nil, function() return G.get("extended_ping") end)
+G.add("lean_enabled","check","move lean","Other",nil,nil,false)
+G.add("move_lean", "slider", "amount", "Other", nil, {0, 100, unit = "%"}, 0)
+G.add("jitter_legs", "check", "Jitter Legs", "Other", nil, nil, false)
+G.add("fast_ladder", "check", "Fast Ladder", "Other", nil, nil, false)
+G.add("no_fall_damage", "check", "No Fall Damage", "Other", nil, nil, false)
+G.add("grenade_release", "check", "Grenade Release", "Other", nil, nil, false)
+G.add("grenade_damage", "slider", "Damage", "Other", nil, {1, 50}, 33, function() return G.get("grenade_release") end)
+G.add("increase_speed", "check", "Increase speed", "Other", nil, nil, false)
+G.add("vm_enabled","check","viewmodel","Other",nil,nil,false)
+G.add("vm_fov", "slider", "Field of View", "Other", nil, {0, 1000, scale = .1}, math.floor(cvar.viewmodel_fov:get_float() * 10))
+G.add("vm_x", "slider", "Offset X", "Other", nil, {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_x:get_float() * 10))
+G.add("vm_y", "slider", "Offset Y", "Other", nil, {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_y:get_float() * 10))
+G.add("vm_z", "slider", "Offset Z", "Other", nil, {-100, 100, scale = .1}, math.floor(cvar.viewmodel_offset_z:get_float() * 10))
+G.add("knife_hand", "check", "Opposite Knife Hand", "Other", nil, nil, false)
+G.add("aspect_enabled","check","aspect ratio","Other",nil,nil,false)
+G.add("aspect", "slider", "Aspect Ratio", "Other", nil, {1, 200, scale = .01}, 133)
+G.add("scope_overlay", "check", "Scope Overlay", "Other", nil, nil, false)
+G.add("scope_type", "combo", "Color", "Other", nil, {"Simple", "Double"}, "Simple", function() return G.get("scope_overlay") end)
+G.add("scope_simple", "color", "Simple", "Other", nil, nil, {255, 255, 255, 155}, function() return G.get("scope_overlay") and G.get("scope_type") == "Simple" end)
+G.add("scope_a", "color", "Double [1]", "Other", nil, nil, {255, 255, 255, 255}, function() return G.get("scope_overlay") and G.get("scope_type") == "Double" end)
+G.add("scope_b", "color", "Double [2]", "Other", nil, nil, {0, 0, 0, 0}, function() return G.get("scope_overlay") and G.get("scope_type") == "Double" end)
+G.add("scope_length", "slider", "Length", "Other", nil, {5, 300}, 180, function() return G.get("scope_overlay") end)
+G.add("scope_offset", "slider", "Offset", "Other", nil, {1, 100}, 5, function() return G.get("scope_overlay") end)
+G.add("hit_enabled","check","hit marker","Other",nil,nil,false)
+G.add("hit_marker", "multi", "mode", "Other", nil, {"Crosshair", "3D"}, {})
+G.add("crosshair_time", "slider", "Crosshair Time", "Other", nil, {3, 100, scale = .1, unit = "s", tips = {[3] = "GameSense"}}, 3, function() return G.has(G.get("hit_marker"), "Crosshair") end)
+G.add("world_time", "slider", "3D Time", "Other", nil, {3, 100, scale = .1, unit = "s"}, 20, function() return G.has(G.get("hit_marker"), "3D") end)
+G.add("world_color", "color", "3D Color", "Other", nil, nil, {255, 255, 255, 255}, function() return G.has(G.get("hit_marker"), "3D") end)
+G.add("manual_arrows", "check", "Manual Arrows", "Other", nil, nil, false)
+G.add("arrows_font", "combo", "Font", "Other", nil, {"Default", "Small", "Console", "Bold"}, "Default", function() return G.get("manual_arrows") end)
+G.add("left_symbol", "text", "Left Symbol", "Other", nil, nil, "<", function() return G.get("manual_arrows") end)
+G.add("right_symbol", "text", "Right Symbol", "Other", nil, nil, ">", function() return G.get("manual_arrows") end)
+G.add("forward_symbol", "text", "Forward Symbol", "Other", nil, nil, "^", function() return G.get("manual_arrows") end)
+G.add("arrows_offset", "slider", "Offset", "Other", nil, {0, 120}, 60, function() return G.get("manual_arrows") end)
+G.add("arrows_color", "color", "Arrow Color", "Other", nil, nil, {255, 255, 255, 255}, function() return G.get("manual_arrows") end)
+G.add("keep_transparency", "check", "Keep Model Transparency", "Other", nil, nil, false)
+G.add("extended_ping", "check", "Extended Ping Spike", "Other", nil, nil, false)
+G.add("ping_key", "hotkey", "Fake Latency key", "Other", nil, {inline=true}, nil, function() return G.get("extended_ping") end)
+G.add("fake_latency", "slider", "Fake Latency", "Other", nil, {0, 200, unit = "ms"}, 0, function() return G.get("extended_ping") end)
 ui.set(G.controls.ping_key.ref, "Always on")
-G.add("log_prefix", "color", "Prefix", "Other", "Log Events", nil, {222, 137, 137, 255})
-G.add("log_main", "color", "Main", "Other", "Log Events", nil, {150, 176, 186, 255})
-G.add("purchases", "check", "Purchases", "Other", "Log Events", nil, false)
-G.add("damage_dealt", "check", "Damage Dealt", "Other", "Log Events", nil, false)
-G.add("shared_esp", "check", "Shared ESP", "Other", "Shared ESP", nil, false, function() return (G.refs.shared or {})[1] ~= nil end)
-G.add("shared_note", "label", "Uses native GameSense Shared ESP when available.", "Other", "Shared ESP")
+G.add("log_prefix", "color", "Prefix", "Other", nil, nil, {222, 137, 137, 255})
+G.add("log_main", "color", "Main", "Other", nil, nil, {150, 176, 186, 255})
+G.add("purchases", "check", "Purchases", "Other", nil, nil, false)
+G.add("damage_dealt", "check", "Damage Dealt", "Other", nil, nil, false)
 
 G.add("presets_header", "label", "\a9CA7E1FFPresets", "Presets")
 G.add("preset_action","combo","action","Presets",nil,{"New","Save","Load","Delete","Export","Import","Sort"},"Save")
@@ -470,15 +474,14 @@ G.storage = ui.new_string("Gazolina421_profiles_v1", "")
 
 -- Compact reference layout: hidden source controls back the friendly checkboxes
 -- and selectors, so the original configuration keys keep their meaning.
-G.controls.yaw.hidden=true
 G.controls.body_yaw.hidden=true
 G.controls.mode.hidden=true
 G.body_detail_keys={body_jitter=true,inverter=true,mode_ticks=true,mode_random=true,
     limit_mode=true,left_limit=true,right_limit=true,from_limit=true,to_limit=true}
-G.builder_defensive_keys={break_triggers=true,hide_shots=true,defensive_choke=true,
+G.defensive_detail_keys={break_triggers=true,hide_shots=true,defensive_choke=true,
     random_choke=true,choke_slider=true,choke_method=true,choke_from=true,choke_to=true,choke_sliders=true}
-for i=1,10 do G.builder_defensive_keys["choke1_"..i]=true end
-
+for i=1,10 do G.defensive_detail_keys["choke1_"..i]=true end
+G.other_parents={move_lean="lean_enabled",vm_fov="vm_enabled",vm_x="vm_enabled",vm_y="vm_enabled",vm_z="vm_enabled",knife_hand="vm_enabled",aspect="aspect_enabled",hit_marker="hit_enabled",crosshair_time="hit_enabled",world_time="hit_enabled",world_color="hit_enabled"}
 -- Collapsible panels affect visibility only. Every value in every profile is
 -- retained even while its panel is closed.
 G.sections={}
@@ -488,11 +491,6 @@ end
 G.section("options_section","Brute",{"anti_bruteforce","brute_states","brute_mode"})
 G.section("options_section","Safe",{"safe_head","safe_conditions","safe_height"})
 G.section("options_section","Warmup",{"warmup","warmup_pitch","warmup_yaw","warmup_range","warmup_speed","warmup_left","warmup_right"})
-G.section("visuals_section","View",{"viewmodel_header","vm_fov","vm_x","vm_y","vm_z","knife_hand","aspect"})
-G.section("visuals_section","Scope",{"scope_overlay","scope_type","scope_simple","scope_a","scope_b","scope_length","scope_offset"})
-G.section("visuals_section","Hits",{"hit_marker","crosshair_time","world_time","world_color"})
-G.section("visuals_section","Arrows",{"manual_arrows","arrows_font","left_symbol","right_symbol","forward_symbol","arrows_offset","arrows_color"})
-G.section("visuals_section","Extra",{"keep_transparency","extended_ping","fake_latency","ping_key"})
 
 for _, team in ipairs(G.teams) do
     G.profiles[team] = {}
@@ -501,10 +499,9 @@ end
 
 -- Versioned, validated JSON presets; no eval/loadstring is used on imports.
 G.non_setting = {master=true, page=true, angles_page=true,
-    other_page=true, team=true, state=true, preset_search=true, preset_name=true,
-    preset_list=true, options_section=true, visuals_section=true, manual_yaw=false,
-    profile_options=true,profile_action=true,preset_action=true,add_yaw=true,body_mode=true,
-    body_advanced=true,force_break_lc=true,builder_defensive=true}
+    team=true, state=true, preset_search=true, preset_name=true,
+    preset_list=true, options_section=true, manual_yaw=false,
+    profile_options=true,profile_action=true,preset_action=true,body_mode=true,body_advanced=true}
 function G.setting(c, key)
     return not c.profile and not G.non_setting[key] and
         c.kind ~= "label" and c.kind ~= "button" and c.kind ~= "hotkey" and c.kind ~= "list"
@@ -572,6 +569,12 @@ function G.apply_snapshot(input)
     for key, c in pairs(G.controls) do
         if G.setting(c, key) and input.settings[key] ~= nil then settings[key] = G.validate_value(key, input.settings[key]) end
     end
+    -- Older presets had always-on Viewmodel/Aspect and no explicit feature
+    -- checkboxes. Preserve that behavior once when migrating their settings.
+    if input.settings.vm_enabled==nil then settings.vm_enabled=true end
+    if input.settings.aspect_enabled==nil then settings.aspect_enabled=true end
+    if input.settings.lean_enabled==nil then settings.lean_enabled=type(input.settings.move_lean)=="number" and input.settings.move_lean>=0 end
+    if input.settings.hit_enabled==nil then settings.hit_enabled=type(input.settings.hit_marker)=="table" and #input.settings.hit_marker>0 end
     -- Validation completes before mutating any live setting.
     if G.stop then G.stop() end
     local old = G.loading; G.loading = true
@@ -870,7 +873,7 @@ function G.weapon_reloading(me,weapon,cmd)
 end
 function G.defensive(me,cmd,p,state)
     local r=G.runtime; local weapon=entity.get_player_weapon(me)
-    if not weapon or not G.has(G.get("break_lc"),state) or G.prop(weapon,"m_fThrowTime",0)~=0 then G.release("dt_fl"); r.last_weapon=weapon; return end
+    if not weapon or not p.defensive_enabled or G.prop(weapon,"m_fThrowTime",0)~=0 then G.release("dt_fl"); r.last_weapon=weapon; return end
     local force=false
     if p.defensive_choke=="Default" then force=true
     else
@@ -1160,14 +1163,19 @@ function G.grenade_release(me,cmd)
 end
 
 function G.visual_cvars(me)
-    G.cv("viewmodel_fov",G.get("vm_fov")*.1)
-    G.cv("viewmodel_offset_x",G.get("vm_x")*.1)
-    G.cv("viewmodel_offset_y",G.get("vm_y")*.1)
-    G.cv("viewmodel_offset_z",G.get("vm_z")*.1)
-    G.cv("r_aspectratio",G.get("aspect")*.01)
+    if G.get("vm_enabled") then
+        G.cv("viewmodel_fov",G.get("vm_fov")*.1)
+        G.cv("viewmodel_offset_x",G.get("vm_x")*.1)
+        G.cv("viewmodel_offset_y",G.get("vm_y")*.1)
+        G.cv("viewmodel_offset_z",G.get("vm_z")*.1)
+    else
+        for _,name in ipairs({"viewmodel_fov","viewmodel_offset_x","viewmodel_offset_y","viewmodel_offset_z"}) do G.release_cv(name) end
+    end
+    if G.get("aspect_enabled") then G.cv("r_aspectratio",G.get("aspect")*.01)
+    else G.release_cv("r_aspectratio") end
     local weapon=me and entity.get_player_weapon(me)
     local class=weapon and entity.get_classname(weapon) or ""
-    if G.get("knife_hand") and (class=="CKnife" or class=="CKnifeGG") then
+    if G.get("vm_enabled") and G.get("knife_hand") and (class=="CKnife" or class=="CKnifeGG") then
         if not G.cv_cache.cl_righthand then G.cv_cache.cl_righthand={cv=cvar.cl_righthand,value=cvar.cl_righthand:get_int()} end
         G.cv("cl_righthand",G.cv_cache.cl_righthand.value==1 and 0 or 1)
     else G.release_cv("cl_righthand") end
@@ -1182,7 +1190,6 @@ function G.visual_cvars(me)
             elseif type(value)=="boolean" then G.override("ping",index,true) end
         end
     else G.release("ping"); G.release_cv("sv_maxunlag") end
-    if G.get("shared_esp") then G.override("shared",1,true) else G.release("shared") end
 end
 function G.check_capabilities()
     local old=G.loading
@@ -1196,8 +1203,8 @@ function G.check_capabilities()
             end
         end
     end
-    if not G.entity_lib and G.get("move_lean")~=-1 then
-        G.set("move_lean",-1)
+    if not G.entity_lib and G.get("lean_enabled") then
+        G.set("lean_enabled",false)
         G.warn_once("move_lean","Move Lean is unavailable: install gamesense/entity and reload the Lua.")
     end
     if not (G.refs.ping or {})[1] and G.get("extended_ping") then
@@ -1223,7 +1230,7 @@ function G.pre_render()
             entity.set_prop(me,"m_flPoseParameter",1,0); entity.set_prop(me,"m_flPoseParameter",1,1)
         end
     else G.release("legs") end
-    if G.entity_lib and G.get("move_lean")~=-1 then
+    if G.entity_lib and G.get("lean_enabled") then
         local ent=G.entity_lib.get_local_player()
         local v=G.vel(me)
         if ent and G.length(v)>=5 then
@@ -1302,11 +1309,11 @@ function G.paint()
         elseif dir=="Forward" then py=y-2-offset; text=G.get("forward_symbol") end
         if text then renderer.text(px,py,color[1],color[2],color[3],color[4],flags,0,text) end
     end
-    if G.has(G.get("hit_marker"),"Crosshair") then
+    if G.get("hit_enabled") and G.has(G.get("hit_marker"),"Crosshair") then
         local alpha=1-G.clamp((now-r.hit_until)*2.5,0,1)^3
         if alpha>.001 then G.hit_lines(x,y,5,{255,255,255,math.floor(alpha*255)}) end
     end
-    if G.has(G.get("hit_marker"),"3D") and r.world_pos then
+    if G.get("hit_enabled") and G.has(G.get("hit_marker"),"3D") and r.world_pos then
         local alpha=1-G.clamp((now-r.world_until)*2.5,0,1)^3
         local p=r.world_pos; local sx,sy=renderer.world_to_screen(p.x,p.y,p.z)
         if sx and alpha>.001 then
@@ -1336,7 +1343,7 @@ function G.bullet_impact(e)
 end
 G.hitgroups={[0]="generic","head","chest","stomach","left arm","right arm","left leg","right leg","neck","generic","gear"}
 function G.aim_fire(e)
-    if not G.is_enabled() then return end
+    if not G.is_enabled() or not (G.get("hit_enabled") or G.get("damage_dealt")) then return end
     local now=globals.realtime()
     for id,s in pairs(G.shots) do if now-s.time>10 then G.shots[id]=nil end end
     G.shots[e.id]={target=e.target,hitgroup=e.hitgroup,damage=e.damage,hitchance=e.hit_chance,
@@ -1345,7 +1352,7 @@ end
 function G.aim_hit(e)
     if not G.is_enabled() then return end
     local shot=G.shots[e.id] or {}; G.shots[e.id]=nil
-    if G.has(G.get("hit_marker"),"3D") then
+    if G.get("hit_enabled") and G.has(G.get("hit_marker"),"3D") then
         local p=shot.x and G.vec(shot.x,shot.y,shot.z)
         if not p and e.target then local x,y,z=entity.hitbox_position(e.target,0); if x then p=G.vec(x,y,z) end end
         if p then G.runtime.world_pos=p; G.runtime.world_until=globals.realtime()+G.get("world_time")*.1 end
@@ -1373,7 +1380,7 @@ function G.player_hurt(e)
     if not G.is_enabled() then return end
     local me=entity.get_local_player(); if not me then return end
     local attacker=client.userid_to_entindex(e.attacker); local target=client.userid_to_entindex(e.userid)
-    if attacker==me and target~=me then G.runtime.hit_until=globals.realtime()+G.get("crosshair_time")*.1 end
+    if G.get("hit_enabled") and attacker==me and target~=me then G.runtime.hit_until=globals.realtime()+G.get("crosshair_time")*.1 end
     if G.get("damage_dealt") and target==me and attacker then
         local verb=({inferno="Molly",hegrenade="Frag",knife="Knife"})[e.weapon]
         if verb then G.log(string.format("Got hurt by %s with %s for %s damage (%s health left)",entity.get_player_name(attacker),verb,e.dmg_health,e.health),true) end
@@ -1434,9 +1441,8 @@ for _,key in ipairs(G.order) do
     if c.kind~="label" and c.kind~="button" then
         ui.set_callback(c.ref,function()
             if G.loading then return end
-            if key=="add_yaw" or key=="body_mode" or key=="force_break_lc" then
+            if key=="body_mode" then
                 G.edit_from_view(key)
-            elseif key=="break_lc" then G.refresh_editor_view()
             elseif key=="team" or key=="state" then
                 G.save_editor(); G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
             elseif c.profile then G.save_editor()
@@ -1448,9 +1454,18 @@ for _,key in ipairs(G.order) do
             elseif key=="scope_overlay" and not G.get("scope_overlay") then G.release("scope")
             elseif key=="jitter_legs" and not G.get("jitter_legs") then G.release("legs")
             elseif key=="extended_ping" and not G.get("extended_ping") then G.release("ping"); G.release_cv("sv_maxunlag")
-            elseif key=="shared_esp" and not G.get("shared_esp") then G.release("shared")
             elseif key=="grenade_release" and not G.get("grenade_release") then G.unlock_movement() end
-            if key=="no_fall_damage" or key=="grenade_release" or key=="move_lean" or key=="extended_ping" then G.check_capabilities() end
+            if key=="hit_enabled" then
+                if G.get("hit_enabled") and #G.get("hit_marker")==0 then
+                    local old=G.loading;G.loading=true;G.set("hit_marker",{"Crosshair"});G.loading=old
+                elseif not G.get("hit_enabled") then
+                    G.runtime.hit_until=-100;G.runtime.world_until=-100;G.runtime.world_pos=nil
+                end
+            end
+            if key=="vm_enabled" or key=="aspect_enabled" then
+                if G.is_enabled() then G.visual_cvars(entity.get_local_player()) end
+            end
+            if key=="no_fall_damage" or key=="grenade_release" or key=="lean_enabled" or key=="extended_ping" then G.check_capabilities() end
             G.visibility()
         end)
     end
