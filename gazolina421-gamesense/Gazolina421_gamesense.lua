@@ -1,11 +1,11 @@
--- Gazolina 421 | GameSense CS:GO port | revision 1.4
+-- Gazolina 421 | GameSense CS:GO port | revision 1.5
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
 -- Menu: AA; builder in Anti-aimbot angles, Other spans all three blocks. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
 -- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 1, revision = "1.4", controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 1, revision = "1.5", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
     teams = {"T", "CT"}, editor_team = "T", editor_state = "Standing",
@@ -68,6 +68,7 @@ G.trace_lib = G.optional("gamesense/trace")
 G.vector_lib = G.optional("vector")
 G.entity_lib = G.optional("gamesense/entity")
 G.weapons = G.optional("gamesense/csgo_weapons")
+G.antiaim_lib = G.optional("gamesense/antiaim_funcs")
 
 function G.log(text, bad)
     local c = G.controls.log_prefix and G.get("log_prefix") or {222, 137, 137, 255}
@@ -103,6 +104,7 @@ G.find("slow", "AA", "Other", "Slow motion")
 G.find("duck", "RAGE", "Other", "Duck peek assist")
 G.find("legs", "AA", "Other", "Leg movement")
 G.find("dt", "RAGE", "Aimbot", "Double tap")
+G.find("rage_enabled", "RAGE", "Aimbot", "Enabled")
 G.find("dt_fl", "RAGE", "Aimbot", "Double tap fake lag limit")
 G.find("hs", "AA", "Other", "On shot anti-aim")
 G.find("scope", "VISUALS", "Effects", "Remove scope overlay")
@@ -206,12 +208,12 @@ function G.display_choice(key,value)
 end
 G.other_locations={}
 for _,key in ipairs({"hit_enabled","hit_marker","crosshair_time","world_time","world_color","manual_arrows","arrows_font","left_symbol","right_symbol","forward_symbol","arrows_offset","arrows_color","keep_transparency","extended_ping","ping_key","fake_latency"}) do G.other_locations[key]="Fake lag" end
-for _,key in ipairs({"lean_enabled","move_lean","jitter_legs","fast_ladder","no_fall_damage","grenade_release","grenade_damage","increase_speed","purchases","damage_dealt","log_prefix","log_main"}) do G.other_locations[key]="Other" end
+for _,key in ipairs({"lean_enabled","move_lean","jitter_legs","fast_ladder","unsafe_recharge","send_ct","send_t","grenade_release","grenade_damage","increase_speed","purchases","damage_dealt","log_prefix","log_main"}) do G.other_locations[key]="Other" end
 function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     -- Buttons render embedded newlines literally in GameSense. Keep their
     -- names short and single-line; other controls retain their config IDs.
     local name = kind=="button" and label or (label .. "\nGazolina421_" .. key)
-    local container=page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles"
+    local container=(key=="send_ct" or key=="send_t") and "Other" or (page=="Other" and (G.other_locations[key] or "Anti-aimbot angles") or "Anti-aimbot angles")
     if kind == "slider" then default = G.clamp(math.floor(default or opts[1]), opts[1], opts[2]) end
     local ref, color_label
     if kind == "check" then ref = ui.new_checkbox("AA", container, name)
@@ -244,6 +246,7 @@ function G.get(key)
     local item = G.controls[key]
     if item.kind == "color" then return {ui.get(item.ref)} end
     local value=ui.get(item.ref)
+    if key=="state" then return G.states[value] end
     if item.kind=="combo" then
         for _,choice in ipairs(item.opts) do if G.display_choice(key,choice)==value then return choice end end
     end
@@ -251,23 +254,24 @@ function G.get(key)
 end
 function G.set(key, v)
     local item = G.controls[key]
-    if item.kind == "color" then ui.set(item.ref, unpack(v))
+    if key=="state" then
+        for i,state in ipairs(G.states) do if v==state then ui.set(item.ref,i);return end end
+        error("Invalid state")
+    elseif item.kind == "color" then ui.set(item.ref, unpack(v))
     elseif item.kind=="combo" then ui.set(item.ref,G.display_choice(key,v))
     else ui.set(item.ref, v) end
 end
 function G.profile() return G.profiles[G.editor_team][G.editor_state] end
 function G.is_enabled() return G.get("master") end
 function G.invoke(key)
-    if key=="profile_apply" then
-        local action=({Copy="copy",Paste="paste",["Other team"]="opposite",Reset="reset_state",["Shuffle timing"]="shuffle_delay",["Shuffle offsets"]="shuffle_modifier",["Shuffle choke"]="shuffle_choke"})[G.get("profile_action")]
-        if action then G.actions[action]() end
+    if key=="send_ct" or key=="send_t" then G.actions.send_team()
     elseif key=="preset_apply" then
         local action="preset_"..G.get("preset_action"):lower()
         if G.actions[action] then G.actions[action]() end
     elseif G.actions and G.actions[key] then G.actions[key]() end
 end
 function G.profile_default()
-    local p = {}; for _, k in ipairs(G.profile_schema) do p[k] = G.copy(G.controls[k].default) end; return p
+    local p = {body_format=2}; for _, k in ipairs(G.profile_schema) do p[k] = G.copy(G.controls[k].default) end; return p
 end
 function G.refresh_editor_view()
     if not G.controls.body_mode or not G.profiles[G.editor_team] then return end
@@ -299,7 +303,19 @@ function G.load_editor()
     G.refresh_editor_view()
     G.loading = old
 end
+function G.sync_editor_team()
+    local me=entity.get_local_player()
+    local id=me and entity.get_prop(me,"m_iTeamNum")
+    if id~=2 and id~=3 then return false end
+    local team=id==2 and "T" or "CT"
+    if team==G.editor_team then return false end
+    G.save_editor()
+    local old=G.loading;G.loading=true;G.set("team",team);G.loading=old
+    G.editor_team=team;G.load_editor()
+    return true
+end
 function G.visibility()
+    G.set("editor_team_label",G.editor_team)
     local enabled = G.get("master")
     local page = G.get("page")
     for _, key in ipairs(G.order) do
@@ -332,11 +348,12 @@ end
 G.add("master", "check", "Gazolina", nil, nil, nil, false)
 G.add("page", "combo", "", "*", nil, {"Presets", "Angles", "Other"}, "Angles")
 G.add("angles_page", "combo", "", "Angles", nil, {"Builder", "Hotkeys", "Options"}, "Builder")
-G.add("profile_options","check","profile options","Angles","Builder",nil,false)
-G.add("team", "combo", "team", "Angles", nil, G.teams, "T", function() return G.get("angles_page")=="Builder" and G.get("profile_options") end)
-G.add("state", "combo", "\aB4CE00FFstate", "Angles", nil, G.states, "Standing", function() return G.get("angles_page")=="Builder" end)
-G.add("profile_action","combo","action","Angles","Builder",{"Copy","Paste","Other team","Reset","Shuffle timing","Shuffle offsets","Shuffle choke"},"Copy",function() return G.get("profile_options") end)
-G.add("profile_apply","button","apply","Angles","Builder",nil,nil,function() return G.get("profile_options") end)
+-- Team is an internal config selector; the visible editor follows the local team.
+G.add("team", "combo", "team", "Angles", nil, G.teams, "T")
+G.controls.team.hidden=true
+G.add("editor_team_label","label","T","Angles","Builder")
+local state_tips={};for i,state in ipairs(G.states) do state_tips[i]=state end
+G.add("state", "slider", "state", "Angles", "Builder", {1,#G.states,tips=state_tips}, 1)
 G.profile_control("pitch","combo","pitch",{"Disabled","Down","Up","Minimal","Random"},"Down")
 G.profile_control("yaw", "slider", "yaw", {0, 1, tips = {[0] = "Solo", [1] = "Double"}}, 0)
 G.profile_control("yaw_offset", "slider", "offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
@@ -364,16 +381,17 @@ end
 G.add("body_mode","combo","body yaw","Angles","Builder",{"Off","Static","Ticks","Random"},"Off")
 G.add("body_advanced","check","body settings","Angles","Builder",nil,false,function() return G.get("body_yaw") end)
 G.profile_control("body_yaw", "check", "body yaw", nil, false)
-G.profile_control("body_jitter", "check", "jitter", nil, true, function() return G.get("body_yaw") and not G.get("apply_delay") end)
-G.profile_control("inverter", "check", "inverter", nil, false, function() return G.get("body_yaw") and not G.get("apply_delay") and not G.get("body_jitter") end)
+G.profile_control("body_jitter", "check", "jitter", nil, false, function() return G.get("body_yaw") and G.get("mode")=="Static" end)
+G.profile_control("body_delay", "slider", "delay", {1,32,unit="t"}, 2, function() return G.get("body_yaw") and G.get("mode")=="Static" and G.get("body_jitter") end)
+G.profile_control("inverter", "check", "inverter", nil, false, function() return G.get("body_yaw") and G.get("mode")=="Static" and not G.get("body_jitter") end)
 G.profile_control("mode", "combo", "mode", {"Static", "Ticks", "Random"}, "Static", function() return G.get("body_yaw") end)
-G.profile_control("mode_ticks", "slider", "ticks", {4, 16, unit = "t"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Ticks" end)
-G.profile_control("mode_random", "slider", "random ticks", {4, 16, unit = "x"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Random" end)
+G.profile_control("mode_ticks", "slider", "ticks", {1, 32, unit = "t"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Ticks" end)
+G.profile_control("mode_random", "slider", "random ticks", {1, 32, unit = "t"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Random" end)
 G.profile_control("limit_mode", "combo", "limit mode", {"Default", "Switch", "Random"}, "Default", function() return G.get("body_yaw") end)
-G.profile_control("left_limit", "slider", "left limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
-G.profile_control("right_limit", "slider", "right limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
-G.profile_control("from_limit", "slider", "from", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
-G.profile_control("to_limit", "slider", "to", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
+G.profile_control("left_limit", "slider", "left limit", {-58, 58, unit="°"}, -58, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
+G.profile_control("right_limit", "slider", "right limit", {-58, 58, unit="°"}, 58, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
+G.profile_control("from_limit", "slider", "from", {-58, 58, unit="°"}, -58, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
+G.profile_control("to_limit", "slider", "to", {-58, 58, unit="°"}, 58, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 
 G.profile_control("defensive_enabled","check","defensive",nil,false)
 G.add("break_triggers", "multi", "Action Triggers", "Angles", "Builder", {"Weapon Swap", "Weapon Reload"}, {})
@@ -421,7 +439,9 @@ G.add("lean_enabled","check","move lean","Other",nil,nil,false)
 G.add("move_lean", "slider", "amount", "Other", nil, {0, 100, unit = "%"}, 0)
 G.add("jitter_legs", "check", "Jitter Legs", "Other", nil, nil, false)
 G.add("fast_ladder", "check", "Fast Ladder", "Other", nil, nil, false)
-G.add("no_fall_damage", "check", "No Fall Damage", "Other", nil, nil, false)
+G.add("unsafe_recharge", "check", "Unsafe Recharge", "Other", nil, nil, false)
+G.add("send_ct","button","send to ct","Angles","Builder",nil,nil,function() return G.editor_team=="T" end)
+G.add("send_t","button","send to t","Angles","Builder",nil,nil,function() return G.editor_team=="CT" end)
 G.add("grenade_release", "check", "Grenade Release", "Other", nil, nil, false)
 G.add("grenade_damage", "slider", "Damage", "Other", nil, {1, 50}, 33, function() return G.get("grenade_release") end)
 G.add("increase_speed", "check", "Increase speed", "Other", nil, nil, false)
@@ -476,7 +496,7 @@ G.storage = ui.new_string("Gazolina421_profiles_v1", "")
 -- and selectors, so the original configuration keys keep their meaning.
 G.controls.body_yaw.hidden=true
 G.controls.mode.hidden=true
-G.body_detail_keys={body_jitter=true,inverter=true,mode_ticks=true,mode_random=true,
+G.body_detail_keys={body_jitter=true,body_delay=true,inverter=true,mode_ticks=true,mode_random=true,
     limit_mode=true,left_limit=true,right_limit=true,from_limit=true,to_limit=true}
 G.defensive_detail_keys={break_triggers=true,hide_shots=true,defensive_choke=true,
     random_choke=true,choke_slider=true,choke_method=true,choke_from=true,choke_to=true,choke_sliders=true}
@@ -501,7 +521,7 @@ end
 G.non_setting = {master=true, page=true, angles_page=true,
     team=true, state=true, preset_search=true, preset_name=true,
     preset_list=true, options_section=true, manual_yaw=false,
-    profile_options=true,profile_action=true,preset_action=true,body_mode=true,body_advanced=true}
+    preset_action=true,body_mode=true,body_advanced=true}
 function G.setting(c, key)
     return not c.profile and not G.non_setting[key] and
         c.kind ~= "label" and c.kind ~= "button" and c.kind ~= "hotkey" and c.kind ~= "list"
@@ -545,7 +565,13 @@ function G.valid_profile(input)
     if type(input) ~= "table" then error("Invalid state profile") end
     local p = G.profile_default()
     for _, key in ipairs(G.profile_schema) do
-        if input[key] ~= nil then p[key] = G.validate_value(key, input[key]) end
+        local value=input[key]
+        if value~=nil then
+            if input.body_format~=2 and (key=="left_limit" or key=="right_limit" or key=="from_limit" or key=="to_limit") and type(value)=="number" then
+                value=math.min(58,math.abs(value))*((key=="left_limit" or key=="from_limit") and -1 or 1)
+            end
+            p[key]=G.validate_value(key,value)
+        end
     end
     return p
 end
@@ -646,6 +672,13 @@ function G.save_preset()
     G.preset_info(); G.log("Successfully saved config (" .. name .. ")")
 end
 G.actions = {
+    send_team = function()
+        G.sync_editor_team();G.save_editor()
+        local other=G.editor_team=="T" and "CT" or "T"
+        G.profiles[other]=G.copy(G.profiles[G.editor_team])
+        G.log("Sent all 9 builder states from "..G.editor_team.." to "..other)
+        G.visibility()
+    end,
     copy = function() G.guarded(function()
         G.save_editor(); G.clip_set("GAZOLINA_STATE1:" .. json.stringify(G.profile())); G.log("Copied current state into clipboard.")
     end) end,
@@ -788,6 +821,16 @@ function G.anti_backstab(me,ctx)
         end
     end
 end
+function G.yaw_delay(p)
+    if p.delay_method=="Random" then return G.random(p.delay_random_min,p.delay_random_max) end
+    if p.delay_method=="Ways" then return p["delay_"..G.random(1,p.delay_custom_sliders)] end
+    return p.delay_default
+end
+function G.body_delay(p)
+    if p.mode=="Ticks" then return p.mode_ticks end
+    if p.mode=="Random" then return G.random(1,p.mode_random) end
+    return p.body_delay
+end
 function G.aa(me,cmd)
     local r=G.runtime
     local state=G.current_state(me,cmd)
@@ -798,13 +841,18 @@ function G.aa(me,cmd)
     if sent then r.sent=r.sent+1 end
     local ctx={pitch=p.pitch or "Down",yaw_base="At targets",offset=0,modifier=p.yaw_modifier,
         modifier_offset=p.modifier_offset,body=p.body_yaw,freestanding=false}
+    local profile_key=team..":"..state
+    if r.aa_profile~=profile_key then
+        r.aa_profile=profile_key;r.side=false;r.last_flip=r.sent-(sent and 1 or 0)
+        r.yaw_interval=nil;r.body_side=false;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil
+    end
     if p.yaw==1 then
         if p.apply_delay then
             if sent then
-                local delay=p.delay_default
-                if p.delay_method=="Random" then delay=G.random(p.delay_random_min,p.delay_random_max)
-                elseif p.delay_method=="Ways" then delay=p["delay_"..G.random(1,p.delay_custom_sliders)] end
-                if r.sent-r.last_flip>=delay then r.side=not r.side; r.last_flip=r.sent end
+                if not r.yaw_interval then r.yaw_interval=G.yaw_delay(p) end
+                if r.sent-r.last_flip>=r.yaw_interval then
+                    r.side=not r.side;r.last_flip=r.sent;r.yaw_interval=G.yaw_delay(p)
+                end
             end
             ctx.offset=r.side and p.left_yaw or p.right_yaw
             if G.active_ref("duck") then ctx.offset=ctx.offset/2 end
@@ -816,25 +864,36 @@ function G.aa(me,cmd)
     if p.randomize_modifier then
         ctx.modifier_offset=p.randomize_mode=="Ways" and p["randomize_"..G.random(1,p.randomize_custom_sliders)] or G.random(p.randomize_min,p.randomize_max)
     end
-    if not G.active_ref("duck") and p.body_yaw then
-        if p.mode=="Ticks" then ctx.body=globals.tickcount()%p.mode_ticks>1
-        elseif p.mode=="Random" then ctx.body=G.random(0,p.mode_random)==p.mode_random end
+    -- Body yaw has its own clock; it never toggles yaw's side or turns AA off.
+    local timed=p.body_yaw and (p.mode~="Static" or p.body_jitter)
+    local body_config=table.concat({tostring(p.body_yaw),p.mode,tostring(p.body_jitter),p.body_delay,p.mode_ticks,p.mode_random,p.limit_mode,p.from_limit,p.to_limit},":")
+    if r.body_config~=body_config then
+        r.body_config=body_config;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil;r.body_side=false
     end
-    if not p.apply_delay then
-        if p.body_jitter then if sent then r.side=not r.side end
-        else r.side=p.inverter end
+    local changed=false
+    if timed then
+        if not r.body_interval then r.body_interval=G.body_delay(p) end
+        if sent then
+            r.body_elapsed=r.body_elapsed+1
+            if r.body_elapsed>=r.body_interval then
+                r.body_side=not r.body_side;r.body_elapsed=0;r.body_interval=G.body_delay(p);changed=true
+            end
+        end
+    else r.body_side=p.inverter end
+    local signed=r.body_side and p.left_limit or p.right_limit
+    if p.limit_mode=="Switch" then signed=r.body_side and p.from_limit or p.to_limit
+    elseif p.limit_mode=="Random" then
+        if r.body_random==nil or changed then r.body_random=G.random(p.from_limit,p.to_limit) end
+        signed=r.body_random
     end
-    local left,right=p.left_limit,p.right_limit
-    if p.limit_mode=="Switch" then left=globals.tickcount()%4>1 and p.from_limit or p.to_limit; right=left
-    elseif p.limit_mode=="Random" then left=G.random(0,1)==1 and p.from_limit or p.to_limit; right=G.random(0,1)==1 and p.from_limit or p.to_limit end
-    ctx.limit=r.side and left or right
-    ctx.side=r.side
+    ctx.body_offset=G.clamp(signed,-58,58)
+    ctx.limit=math.abs(ctx.body_offset);ctx.side=r.body_side
     if G.is_warmup() then
         local pitch=G.get("warmup_pitch")
         if pitch=="Random" then pitch=({"Disabled","Down","Fake Up","Fake Down"})[G.random(1,4)] end
         ctx.pitch=pitch; ctx.body=false; ctx.modifier="Disabled"; ctx.modifier_offset=0
         local mode=G.get("warmup_yaw"); local speed=G.get("warmup_speed"); local range=G.get("warmup_range")
-        if mode=="L&R" then ctx.offset=r.side and G.get("warmup_left") or G.get("warmup_right")
+        if mode=="L&R" then ctx.offset=math.floor(r.sent/2)%2==0 and G.get("warmup_left") or G.get("warmup_right")
         elseif mode=="Distortion" then r.warmup_offset=r.warmup_offset+globals.tickinterval()*speed; ctx.offset=math.sin(r.warmup_offset)*range
         else r.warmup_offset=r.warmup_offset+speed/100*14; ctx.offset=range>0 and r.warmup_offset%range or 0 end
         G.release("dt_fl")
@@ -919,11 +978,11 @@ function G.apply_aa(ctx,cmd)
     local modifiers={Disabled="Off",Center="Center",Offset="Offset",Random="Random"}
     G.override("jitter",1,modifiers[modifier] or "Off")
     G.override("jitter",2,ctx.modifier_offset)
-    -- NL limits are 0..60; GS body-yaw offsets are 0..180. The fake-yaw
-    -- limit is set separately when exposed by the running GS build.
+    -- Signed requested GS body offset, without the old x3 amplification.
+    local body_offset=G.clamp(ctx.body_offset or ((ctx.side and -1 or 1)*(ctx.limit or 0)),-58,58)
     G.override("body",1,ctx.body and "Static" or "Off")
-    G.override("body",2,ctx.body and (ctx.side and -1 or 1)*math.floor(ctx.limit*3) or 0)
-    G.override("fake_limit",1,G.clamp(math.floor(ctx.limit),0,60))
+    G.override("body",2,ctx.body and body_offset or 0)
+    G.override("fake_limit",1,math.abs(body_offset))
     G.override("fs_body",1,ctx.freestanding and G.get("fs_body") or false)
     if (G.refs.freestanding or {})[1] then
         local value=ui.get(G.refs.freestanding[1])
@@ -961,28 +1020,6 @@ function G.fast_ladder(me,cmd)
             cmd.yaw=G.yaw(cmd.yaw-(cmd.sidemove==0 and 90 or (cmd.sidemove>0 and 30 or 150)))
         end
     end
-end
-function G.no_fall_damage(me,cmd)
-    if not G.get("no_fall_damage") or not (G.trace_lib and G.vector_lib) then return end
-    if bit.band(G.prop(me,"m_fFlags",0),1)~=0 or G.prop(me,"m_MoveType",0)~=2 then return end
-    local v=G.vel(me); if v.z>=0 then return end
-    local pos=G.pos(me); if not pos then return end
-    if bit.band(G.prop(me,"m_fFlags",0),2)==0 then pos.z=pos.z+9 end
-    local mins=G.vec(entity.get_prop(me,"m_vecMins"))
-    local maxs=G.vec(entity.get_prop(me,"m_vecMaxs")); maxs.z=54
-    local tr=G.trace_hull(pos,G.subv(pos,G.vec(0,0,1000)),mins,maxs,me,1)
-    if not tr or tr.fraction>=1 or tr.start_solid or tr.all_solid or tr.normal.z<.7 then return end
-    local distance=tr.fraction*1000
-    if distance>=11 then
-        local height,velocity=distance,v.z
-        local dt=globals.tickinterval(); local gravity=cvar.sv_gravity:get_float()*dt*.5
-        -- Bounded simulation also handles unusual server gravity values.
-        for _=1,512 do
-            if height<=11 then break end
-            velocity=velocity-gravity; height=height+dt*velocity
-        end
-        if velocity<=-580 and height>=9 and height<=11 then cmd.in_duck=1; cmd.in_jump=0 end
-    elseif v.z<-580 and distance>9 then cmd.in_jump=1; cmd.in_duck=0 end
 end
 function G.fakeduck_speed(me,cmd)
     if not G.get("increase_speed") or not G.active_ref("duck") then return end
@@ -1191,12 +1228,41 @@ function G.visual_cvars(me)
         end
     else G.release("ping"); G.release_cv("sv_maxunlag") end
 end
+function G.cancel_recharge()
+    G.runtime.recharge=nil;G.release("rage_enabled")
+end
+function G.arm_recharge(target)
+    if not G.is_enabled() or not G.get("unsafe_recharge") or not G.active_ref("dt") or G.active_ref("duck") then return end
+    local me=entity.get_local_player()
+    if not me or not entity.is_alive(me) or not target or not entity.is_enemy(target) then return end
+    local now=globals.tickcount()
+    G.runtime.recharge={weapon=entity.get_player_weapon(me),start=now+2,deadline=now+math.ceil(.75/globals.tickinterval())}
+end
+function G.unsafe_recharge(me,cmd)
+    local r=G.runtime.recharge
+    if not r then return end
+    local tick=globals.tickcount()
+    if not G.get("unsafe_recharge") or not G.active_ref("dt") or G.active_ref("duck") or not entity.is_alive(me)
+        or entity.get_player_weapon(me)~=r.weapon or tick>r.deadline then G.cancel_recharge();return end
+    if tick<r.start then return end
+    if not G.antiaim_lib or type(G.antiaim_lib.get_double_tap)~="function" then G.cancel_recharge();return end
+    local charged=G.antiaim_lib.get_double_tap()
+    if charged then G.cancel_recharge();return end
+    -- Let native DT recharge even with a hittable target. Do not toggle DT or
+    -- hold this override indefinitely; restore the user's aimbot on completion.
+    G.override("rage_enabled",1,false)
+    cmd.force_defensive=false
+end
 function G.check_capabilities()
     local old=G.loading
     G.loading=true
+    if G.get("unsafe_recharge") and (not G.antiaim_lib or type(G.antiaim_lib.get_double_tap)~="function" or not (G.refs.rage_enabled or {})[1] or not (G.refs.dt or {})[1]) then
+        G.set("unsafe_recharge",false);G.cancel_recharge()
+        G.warn_once("unsafe_recharge","Unsafe Recharge requires gamesense/antiaim_funcs and native Ragebot / Double tap references.")
+    end
     local trace=G.trace_lib and type(G.trace_lib.hull)=="function" and G.vector_lib
     if not trace then
-        for _,key in ipairs({"no_fall_damage","grenade_release"}) do
+        for _,key in ipairs({"grenade_release"}) do
             if G.get(key) then
                 G.set(key,false)
                 G.warn_once(key,"Cannot enable "..key..": install gamesense/trace and vector, then reload the Lua.")
@@ -1343,6 +1409,7 @@ function G.bullet_impact(e)
 end
 G.hitgroups={[0]="generic","head","chest","stomach","left arm","right arm","left leg","right leg","neck","generic","gear"}
 function G.aim_fire(e)
+    G.arm_recharge(e.target)
     if not G.is_enabled() or not (G.get("hit_enabled") or G.get("damage_dealt")) then return end
     local now=globals.realtime()
     for id,s in pairs(G.shots) do if now-s.time>10 then G.shots[id]=nil end end
@@ -1395,6 +1462,7 @@ function G.release_angles()
     for _,key in ipairs({"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit","dt_fl"}) do G.release(key) end
 end
 function G.stop()
+    G.cancel_recharge()
     G.post_render(); G.restore_refs(); G.restore_cvars()
     local r=G.runtime
     r.running=false; r.brute_until=0; r.last_weapon=nil; r.unlock_command=0; r.locked=nil
@@ -1402,6 +1470,7 @@ function G.stop()
     r.scope_alpha=0; r.arrow_alpha=0; r.manual_keys={}
     r.active_team=nil; r.active_state=nil; r.last_context=nil
     r.side=false; r.sent=0; r.last_flip=0; r.warmup_offset=0; r.status_time=nil
+    r.aa_profile=nil;r.yaw_interval=nil;r.body_config=nil;r.body_side=false;r.body_elapsed=0;r.body_interval=nil;r.body_random=nil
     G.shots={}
 end
 function G.setup_command(cmd)
@@ -1409,16 +1478,22 @@ function G.setup_command(cmd)
     G.runtime.running=true
     G.update_manual()
     local me=entity.get_local_player()
-    if not me or not entity.is_alive(me) then G.release_angles(); G.unlock_movement(); return end
+    if not me or not entity.is_alive(me) then G.cancel_recharge(); G.release_angles(); G.unlock_movement(); return end
     local team=G.prop(me,"m_iTeamNum",0)
-    if team~=2 and team~=3 then G.release_angles(); return end
+    if team~=2 and team~=3 then G.cancel_recharge(); G.release_angles(); return end
+    if G.sync_editor_team() then G.visibility() end
     G.aa(me,cmd)
     G.fast_ladder(me,cmd)
-    G.no_fall_damage(me,cmd)
     G.fakeduck_speed(me,cmd)
     G.grenade_release(me,cmd)
+    G.unsafe_recharge(me,cmd)
 end
 function G.paint_ui()
+    if G.sync_editor_team() then G.visibility() end
+    if G.runtime.recharge then
+        local me=entity.get_local_player()
+        if not G.is_enabled() or not me or not entity.is_alive(me) or not G.active_ref("dt") or globals.tickcount()>G.runtime.recharge.deadline then G.cancel_recharge() end
+    end
     G.sync_native_visibility()
     if not G.is_enabled() then if G.runtime.running then G.stop() end; return end
     G.runtime.running=true
@@ -1453,6 +1528,7 @@ for _,key in ipairs(G.order) do
                 local name=G.selected_preset(); if name then G.set("preset_name",name) end; G.preset_info()
             elseif key=="scope_overlay" and not G.get("scope_overlay") then G.release("scope")
             elseif key=="jitter_legs" and not G.get("jitter_legs") then G.release("legs")
+            elseif key=="unsafe_recharge" and not G.get("unsafe_recharge") then G.cancel_recharge()
             elseif key=="extended_ping" and not G.get("extended_ping") then G.release("ping"); G.release_cv("sv_maxunlag")
             elseif key=="grenade_release" and not G.get("grenade_release") then G.unlock_movement() end
             if key=="hit_enabled" then
@@ -1465,7 +1541,7 @@ for _,key in ipairs(G.order) do
             if key=="vm_enabled" or key=="aspect_enabled" then
                 if G.is_enabled() then G.visual_cvars(entity.get_local_player()) end
             end
-            if key=="no_fall_damage" or key=="grenade_release" or key=="lean_enabled" or key=="extended_ping" then G.check_capabilities() end
+            if key=="unsafe_recharge" or key=="grenade_release" or key=="lean_enabled" or key=="extended_ping" then G.check_capabilities() end
             G.visibility()
         end)
     end
@@ -1475,6 +1551,7 @@ local saved=database.read(G.db_key.."_current")
 if saved then G.guarded(function() G.apply_snapshot(saved) end) else G.load_editor() end
 G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
 G.check_capabilities()
+G.sync_editor_team()
 G.update_presets(); G.visibility()
 G.listen("setup_command",G.setup_command)
 G.listen("paint_ui",G.paint_ui)
@@ -1483,6 +1560,15 @@ G.listen("pre_render",G.pre_render)
 G.listen("post_render",G.post_render)
 G.listen("bullet_impact",G.bullet_impact)
 G.listen("aim_fire",G.aim_fire)
+G.listen("weapon_fire",function(e)
+    if not G.is_enabled() or not G.get("unsafe_recharge") then return end
+    local me=entity.get_local_player()
+    if not me or client.userid_to_entindex(e.userid)~=me then return end
+    local weapon=entity.get_player_weapon(me)
+    local class=weapon and entity.get_classname(weapon) or ""
+    if class=="CKnife" or class=="CKnifeGG" or class:find("Grenade") or class=="CMolotovGrenade" or class=="CIncendiaryGrenade" then return end
+    G.arm_recharge(G.threat(me))
+end)
 G.listen("aim_hit",G.aim_hit)
 G.listen("aim_miss",G.aim_miss)
 G.listen("player_hurt",G.player_hurt)
