@@ -1,11 +1,11 @@
--- Gazolina 421 | GameSense CS:GO port
+-- Gazolina 421 | GameSense CS:GO port | revision 1.1
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
 -- Menu: AA -> Anti-aimbot angles. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
--- See Gazolina421_gamesense_README.txt for API differences and validation limits.
+-- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 1, controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 1, revision = "1.1", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
     teams = {"T", "CT"}, editor_team = "T", editor_state = "Standing",
@@ -13,7 +13,7 @@ local G = {
         brute_until = 0, brute_offset = 0, brute_tick = -1, last_weapon = nil,
         unlock_command = 0, locked = nil, hit_until = -100, world_until = -100,
         scope_alpha = 0, arrow_alpha = 0, last_manual = "Disabled", manual_keys = {}},
-    db_key = "gazolina421_gamesense_v1", preset_names = {},
+    db_key = "gazolina421_gamesense_v1", preset_names = {}, warned = {},
 }
 
 function G.copy(v)
@@ -36,7 +36,34 @@ end
 function G.optional(name)
     local ok, lib = pcall(require, name); if ok then return lib end
 end
+function G.native_clipboard()
+    -- Public Source interface, guarded to Windows/x86. Prefer the workshop
+    -- library when installed. No signature scanning or injected code is used.
+    local ffi = G.optional("ffi")
+    if not ffi or not client.create_interface or not ffi.abi("win") or ffi.sizeof("void*") ~= 4 then return end
+    local pointer = client.create_interface("vgui2.dll", "VGUI_System010")
+    if pointer == nil then return end
+    local table_ptr = ffi.cast("void***", pointer)[0]
+    local set = ffi.cast("void(__thiscall*)(void*, const char*, int)", table_ptr[9])
+    local count = ffi.cast("int(__thiscall*)(void*)", table_ptr[7])
+    local get = ffi.cast("int(__thiscall*)(void*, int, char*, int)", table_ptr[11])
+    return {
+        get = function()
+            local size = count(pointer)
+            if size <= 0 then return "" end
+            if size > 524289 then error("Clipboard is too large") end
+            local buffer = ffi.new("char[?]", size)
+            get(pointer, 0, buffer, size)
+            return ffi.string(buffer, math.max(0, size - 1))
+        end,
+        set = function(text) set(pointer, text, #text) end,
+    }
+end
 G.clipboard = G.optional("gamesense/clipboard")
+if not G.clipboard then
+    local ok, clipboard = pcall(G.native_clipboard)
+    if ok then G.clipboard = clipboard end
+end
 G.trace_lib = G.optional("gamesense/trace")
 G.vector_lib = G.optional("vector")
 G.entity_lib = G.optional("gamesense/entity")
@@ -47,6 +74,11 @@ function G.log(text, bad)
     client.color_log(c[1], c[2], c[3], "[Gazolina] \0")
     c = bad and {255, 95, 95} or (G.controls.log_main and G.get("log_main") or {150, 176, 186})
     client.color_log(c[1], c[2], c[3], tostring(text))
+end
+function G.warn_once(key, text)
+    if G.warned[key] then return end
+    G.warned[key] = true
+    G.log(text, true)
 end
 function G.find(key, tab, container, name, required)
     local result = {pcall(ui.reference, tab, container, name)}
@@ -199,7 +231,7 @@ function G.profile_control(key, kind, name, opts, default, predicate, part)
     return G.add(key, kind, name, "Angles", part or "Builder", opts, default, predicate, true)
 end
 
-G.add("title", "label", "\a9CA7E1FFGazolina 421  |  GameSense")
+G.add("title", "label", "\a9CA7E1FFGazolina 421  |  GameSense 1.1")
 G.add("master", "check", "Enable Gazolina", nil, nil, nil, false)
 G.add("toggle", "button", "Toggle Gazolina")
 G.add("activation", "hotkey", "Gazolina activation", "*")
@@ -208,15 +240,18 @@ G.add("page", "combo", "Gazolina", "*", nil, {"Presets", "Angles", "Other"}, "An
 G.add("angles_page", "combo", "Angles", "Angles", nil, {"Builder", "Tickbase", "Hotkeys", "Options"}, "Builder")
 G.add("team", "combo", "Team", "Angles", nil, G.teams, "T", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
 G.add("state", "combo", "State", "Angles", nil, G.states, "Standing", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
+G.add("builder_info", "label", "18 profiles | 65 original settings per profile", "Angles")
 G.add("copy", "button", "Copy", "Angles", "Builder")
 G.add("paste", "button", "Paste", "Angles", "Builder")
 G.add("opposite", "button", "Send to opposite team", "Angles", "Builder")
+G.add("reset_state", "button", "Reset selected state", "Angles", "Builder")
+G.add("manual_builder_note", "label", "Manual direction overrides the state's yaw offset.", "Angles", "Builder", nil, nil, function() return G.get("state")=="Manuals" end)
 G.add("yaw_header", "label", "\a9CA7E1FFYaw", "Angles", "Builder")
-G.profile_control("yaw", "slider", "Mode", {0, 1, tips = {[0] = "Off", [1] = "Dual"}}, 0, function() return G.get("state") ~= "Safe Head" end)
-G.profile_control("yaw_offset", "slider", "Yaw Offset", {-180, 180}, 0, function() return G.get("yaw") == 0 and G.get("state") ~= "Safe Head" end)
-G.profile_control("left_yaw", "slider", "Left Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 and G.get("state") ~= "Safe Head" end)
-G.profile_control("right_yaw", "slider", "Right Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 and G.get("state") ~= "Safe Head" end)
-G.profile_control("apply_delay", "check", "Apply Delay", nil, false, function() return G.get("yaw") == 1 and G.get("state") ~= "Safe Head" end)
+G.profile_control("yaw", "slider", "Mode", {0, 1, tips = {[0] = "Off", [1] = "Dual"}}, 0)
+G.profile_control("yaw_offset", "slider", "Yaw Offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
+G.profile_control("left_yaw", "slider", "Left Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
+G.profile_control("right_yaw", "slider", "Right Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
+G.profile_control("apply_delay", "check", "Apply Delay", nil, false, function() return G.get("yaw") == 1 end)
 G.profile_control("delay_method", "combo", "Method", {"Default", "Random", "Ways"}, "Default", function() return G.get("yaw") == 1 and G.get("apply_delay") end)
 G.profile_control("delay_default", "slider", "Timing", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Default" end)
 G.profile_control("delay_random_min", "slider", "[1]", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Random" end)
@@ -437,6 +472,7 @@ function G.apply_snapshot(input)
         if G.setting(c, key) and input.settings[key] ~= nil then settings[key] = G.validate_value(key, input.settings[key]) end
     end
     -- Validation completes before mutating any live setting.
+    if G.stop then G.stop() end
     local old = G.loading; G.loading = true
     G.profiles = profiles
     for key, value in pairs(settings) do G.set(key, value) end
@@ -444,6 +480,7 @@ function G.apply_snapshot(input)
     G.restore_refs(); G.restore_cvars()
     G.runtime.brute_until = 0; G.runtime.unlock_command = 0; G.runtime.locked = nil
     G.runtime.last_manual = G.get("manual_yaw")
+    if G.check_capabilities then G.check_capabilities() end
     G.visibility()
 end
 function G.decode(text)
@@ -521,6 +558,11 @@ G.actions = {
         G.profiles[other][G.editor_state] = G.copy(G.profile())
         G.log("Sent " .. G.editor_state .. " settings to " .. other)
     end,
+    reset_state = function()
+        G.profiles[G.editor_team][G.editor_state] = G.profile_default()
+        G.load_editor(); G.visibility()
+        G.log("Reset " .. G.editor_team .. " / " .. G.editor_state)
+    end,
     shuffle_delay = function() for i=1,G.get("delay_custom_sliders") do G.set("delay_" .. i, G.random(1,10)) end end,
     shuffle_modifier = function() for i=1,G.get("randomize_custom_sliders") do G.set("randomize_" .. i, G.random(-30,30)) end end,
     shuffle_choke = function() for i=1,G.get("choke_sliders") do G.set("choke1_" .. i, G.random(1,32)) end end,
@@ -590,8 +632,10 @@ function G.threat(me)
 end
 function G.update_manual()
     local r=G.runtime
-    local keys={manual_left="Left",manual_right="Right",manual_forward="Forward",manual_reset="Disabled"}
-    for key,dir in pairs(keys) do
+    -- Fixed order makes simultaneous key presses deterministic; Reset wins.
+    local keys={{"manual_left","Left"},{"manual_right","Right"},{"manual_forward","Forward"},{"manual_reset","Disabled"}}
+    for _,binding in ipairs(keys) do
+        local key,dir=binding[1],binding[2]
         local down=G.get(key)
         if down and not r.manual_keys[key] then
             G.set("manual_yaw",G.get("manual_yaw")==dir and "Disabled" or dir)
@@ -645,6 +689,7 @@ function G.aa(me,cmd)
     local r=G.runtime
     local state=G.current_state(me,cmd)
     local team=G.prop(me,"m_iTeamNum",0)==2 and "T" or "CT"
+    r.active_team=team; r.active_state=state
     local p=G.profiles[team][state]
     local sent=cmd.chokedcommands==0
     if sent then r.sent=r.sent+1 end
@@ -706,6 +751,22 @@ function G.aa(me,cmd)
     end
     G.anti_backstab(me,ctx)
     G.apply_aa(ctx,cmd)
+    r.last_context=G.copy(ctx)
+end
+function G.weapon_reloading(me,weapon,cmd)
+    if cmd.in_reload==1 then return true end
+    local ok,value=pcall(entity.get_prop,weapon,"m_bInReload")
+    if ok and (value==1 or value==true) then return true end
+    if G.entity_lib then
+        local ent=G.entity_lib.get_local_player()
+        if ent and ent.get_sequence_activity and ent.get_anim_overlay then
+            local layer=ent:get_anim_overlay(1)
+            if layer and layer.weight>0 then
+                return ent:get_sequence_activity(layer.sequence)==967
+            end
+        end
+    end
+    return false
 end
 function G.defensive(me,cmd,p,state)
     local r=G.runtime; local weapon=entity.get_player_weapon(me)
@@ -721,7 +782,7 @@ function G.defensive(me,cmd,p,state)
     end
     local triggers=G.get("break_triggers")
     if G.has(triggers,"Weapon Swap") and r.last_weapon and weapon~=r.last_weapon then force=true end
-    local reload=G.prop(weapon,"m_bInReload",0)==1 or (cmd.in_reload==1)
+    local reload=G.weapon_reloading(me,weapon,cmd)
     if G.has(triggers,"Weapon Reload") and reload then force=true end
     r.last_weapon=weapon
     -- GameSense exposes the force_defensive usercmd flag; it cannot reproduce
@@ -730,7 +791,7 @@ function G.defensive(me,cmd,p,state)
         cmd.force_defensive=force
         local policy=G.get("hide_shots")
         if policy=="Favor Fake Lag" then G.override("dt_fl",1,2)
-        elseif policy=="Break LC" then cmd.force_defensive=true; G.override("dt_fl",1,1)
+        elseif policy=="Break LC" then G.override("dt_fl",1,1)
         else G.release("dt_fl") end
     else G.release("dt_fl") end
 end
@@ -762,7 +823,9 @@ function G.apply_aa(ctx,cmd)
     G.override("fake_limit",1,G.clamp(math.floor(ctx.limit),0,60))
     G.override("fs_body",1,ctx.freestanding and G.get("fs_body") or false)
     if (G.refs.freestanding or {})[1] then
-        if type(ui.get(G.refs.freestanding[1]))=="boolean" then G.override("freestanding",1,ctx.freestanding)
+        local value=ui.get(G.refs.freestanding[1])
+        if type(value)=="boolean" then G.override("freestanding",1,ctx.freestanding)
+        elseif type(value)=="string" then G.override("freestanding",1,ctx.freestanding and "Default" or "-")
         else G.override("freestanding",1,ctx.freestanding and {"Default"} or {},"multi") end
     end
     if (G.refs.freestanding or {})[2] then
@@ -1010,14 +1073,38 @@ function G.visual_cvars(me)
     else G.release_cv("cl_righthand") end
     if G.get("extended_ping") and G.get("ping_key") and G.get("fake_latency")>0 then
         G.cv("sv_maxunlag",.2)
-        if (G.refs.ping or {})[1] then
-            -- Ping spike returns enabled checkbox, hotkey, amount slider.
-            G.override("ping",1,true)
-            if G.refs.ping[2] then G.override("ping",2,"Always on","hotkey") end
-            if G.refs.ping[3] then G.override("ping",3,G.get("fake_latency")) end
+        for index,ref in ipairs(G.refs.ping or {}) do
+            local value,mode=ui.get(ref)
+            local count=#G.refs.ping
+            local is_hotkey=type(mode)=="number" or (count==3 and index==2) or (count==2 and index==1)
+            if type(value)=="number" then G.override("ping",index,G.get("fake_latency"))
+            elseif type(value)=="boolean" and is_hotkey then G.override("ping",index,"Always on","hotkey")
+            elseif type(value)=="boolean" then G.override("ping",index,true) end
         end
     else G.release("ping"); G.release_cv("sv_maxunlag") end
     if G.get("shared_esp") then G.override("shared",1,true) else G.release("shared") end
+end
+function G.check_capabilities()
+    local old=G.loading
+    G.loading=true
+    local trace=G.trace_lib and type(G.trace_lib.hull)=="function" and G.vector_lib
+    if not trace then
+        for _,key in ipairs({"no_fall_damage","grenade_release"}) do
+            if G.get(key) then
+                G.set(key,false)
+                G.warn_once(key,"Cannot enable "..key..": install gamesense/trace and vector, then reload the Lua.")
+            end
+        end
+    end
+    if not G.entity_lib and G.get("move_lean")~=-1 then
+        G.set("move_lean",-1)
+        G.warn_once("move_lean","Move Lean is unavailable: install gamesense/entity and reload the Lua.")
+    end
+    if not (G.refs.ping or {})[1] and G.get("extended_ping") then
+        G.set("extended_ping",false)
+        G.warn_once("ping","Extended Ping Spike is unavailable: native Ping spike reference was not found in this build.")
+    end
+    G.loading=old
 end
 function G.restore_model()
     local old=G.runtime.model_color
@@ -1206,6 +1293,8 @@ function G.stop()
     r.running=false; r.brute_until=0; r.last_weapon=nil; r.unlock_command=0; r.locked=nil
     r.hit_until=-100; r.world_until=-100; r.world_pos=nil
     r.scope_alpha=0; r.arrow_alpha=0; r.manual_keys={}
+    r.active_team=nil; r.active_state=nil; r.last_context=nil
+    r.side=false; r.sent=0; r.last_flip=0; r.warmup_offset=0; r.status_time=nil
     G.shots={}
 end
 function G.setup_command(cmd)
@@ -1226,6 +1315,12 @@ function G.paint_ui()
     if not G.is_enabled() then if G.runtime.running then G.stop() end; return end
     G.runtime.running=true
     G.visual_cvars(entity.get_local_player())
+    if not G.runtime.status_time or globals.realtime()>=G.runtime.status_time then
+        local r=G.runtime
+        local active=r.active_state and (r.active_team.." / "..r.active_state) or "not alive"
+        G.set("builder_info","Editing: "..G.editor_team.." / "..G.editor_state.."\nActive: "..active.." | 18 profiles, 65 settings each")
+        r.status_time=globals.realtime()+.2
+    end
 end
 
 -- Event errors disable the port and release borrowed settings immediately.
@@ -1257,6 +1352,7 @@ for _,key in ipairs(G.order) do
             elseif key=="extended_ping" and not G.get("extended_ping") then G.release("ping"); G.release_cv("sv_maxunlag")
             elseif key=="shared_esp" and not G.get("shared_esp") then G.release("shared")
             elseif key=="grenade_release" and not G.get("grenade_release") then G.unlock_movement() end
+            if key=="no_fall_damage" or key=="grenade_release" or key=="move_lean" or key=="extended_ping" then G.check_capabilities() end
             G.visibility()
         end)
     end
@@ -1265,6 +1361,7 @@ G.loading=false
 local saved=database.read(G.db_key.."_current")
 if saved then G.guarded(function() G.apply_snapshot(saved) end) else G.load_editor() end
 G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
+G.check_capabilities()
 G.update_presets(); G.visibility()
 G.listen("setup_command",G.setup_command)
 G.listen("paint_ui",G.paint_ui)
