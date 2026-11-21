@@ -1,17 +1,23 @@
-GAZOLINA 421 — сверка схемы билдера, редакция 1.4
+GAZOLINA 421 — сверка схемы Builder, редакция 1.5
 
-Источник: загруженный Gazolina421.lua; извлечение меню выполнено из исходного Lua-кода.
-Проверено 18 профилей: T/CT × 9 состояний. В каждом профиле 65 исходных параметров и дополнительные Pitch / defensive_enabled (всего 67).
-Все ключи, типы, диапазоны, варианты combobox и исходные значения совпадают.
-Новый Pitch: Disabled / Down / Up / Minimal / Random; default=Down.
-Новый defensive_enabled: check; default=false; отдельно для каждой команды/состояния.
-Tickbase объединён с Builder. Глобальный Force Break LC удалён по запросу.
-Ползунок yaw 0/1 отображается как Solo/Double; исходные значения не изменены.
-Ниже перечислены исходные параметры; delay_1..10, randomize_1..10 и choke1_1..10
-действительно сохранены отдельно в каждом профиле, а не объединены в один параметр.
+18 профилей: T/CT × 9 состояний.
+65 исходных полей сохранены с запрошенными изменениями; добавлены Pitch,
+defensive_enabled и body_delay. Всего 68 настроек на профиль.
+body_format=2 — метаданные миграции подписанных значений.
+
+Намеренные изменения относительно Neverlose/редакции 1.4:
+left_limit, right_limit, from_limit, to_limit: -58..58, default -58/+58.
+mode_ticks и mode_random: 1..32 вместо 4..16.
+body_jitter по умолчанию false для стабильного Static.
+Добавлен независимый body_delay: 1..32, default=2.
+Yaw 0/1 отображается как Solo/Double.
+No Fall Damage и глобальный Force Break LC удалены по запросу; Tickbase в Builder.
+
+Фактическая схема текущей Lua:
 
 apply_delay: check; default=false
-body_jitter: check; default=true
+body_delay: slider; 1..32; default=2
+body_jitter: check; default=false
 body_yaw: check; default=false
 choke1_1: slider; 1..32; default=1
 choke1_10: slider; 1..32; default=1
@@ -29,6 +35,7 @@ choke_slider: slider; 1..32; default=16
 choke_sliders: slider; 2..10; default=2
 choke_to: slider; 1..32; default=32
 defensive_choke: combo; Default / Custom; default=Default
+defensive_enabled: check; default=false
 delay_1: slider; 1..22; default=1
 delay_10: slider; 1..22; default=1
 delay_2: slider; 1..22; default=1
@@ -44,15 +51,16 @@ delay_default: slider; 1..22; default=1
 delay_method: combo; Default / Random / Ways; default=Default
 delay_random_max: slider; 1..22; default=1
 delay_random_min: slider; 1..22; default=1
-from_limit: slider; 0..60; default=60
+from_limit: slider; -58..58; default=-58
 inverter: check; default=false
-left_limit: slider; 0..60; default=60
+left_limit: slider; -58..58; default=-58
 left_yaw: slider; -180..180; default=0
 limit_mode: combo; Default / Switch / Random; default=Default
 mode: combo; Static / Ticks / Random; default=Static
-mode_random: slider; 4..16; default=4
-mode_ticks: slider; 4..16; default=4
+mode_random: slider; 1..32; default=4
+mode_ticks: slider; 1..32; default=4
 modifier_offset: slider; -180..180; default=0
+pitch: combo; Disabled / Down / Up / Minimal / Random; default=Down
 random_choke: check; default=false
 randomize_1: slider; -180..180; default=0
 randomize_10: slider; -180..180; default=0
@@ -69,13 +77,12 @@ randomize_max: slider; -180..180; default=0
 randomize_min: slider; -180..180; default=0
 randomize_mode: combo; Default / Ways; default=Default
 randomize_modifier: check; default=false
-right_limit: slider; 0..60; default=60
+right_limit: slider; -58..58; default=58
 right_yaw: slider; -180..180; default=0
-to_limit: slider; 0..60; default=60
+to_limit: slider; -58..58; default=58
 yaw: slider; 0..1; default=0
 yaw_modifier: combo; Disabled / Center / Offset / Random / Spin / 3-Way / 5-Way; default=Disabled
 yaw_offset: slider; -180..180; default=0
 
-Эта сверка подтверждает полноту настроек билдера, а не идентичность
-внутренних алгоритмов двух разных клиентов и не запуск в настоящем GameSense.
-Пределы сопоставления API и зависимости перечислены в README.txt.
+Проверки подтверждают наличие/сохранение полей и запрошенные изменения схемы.
+Они не подтверждают одинаковую внутреннюю механику клиентов или запуск в игре.
