@@ -1,41 +1,19 @@
-GAZOLINA 421 — сверка схемы Builder, редакция 1.5
+GAZOLINA 421 — схема Builder, редакция 1.6
 
-18 профилей: T/CT × 9 состояний.
-65 исходных полей сохранены с запрошенными изменениями; добавлены Pitch,
-defensive_enabled и body_delay. Всего 68 настроек на профиль.
-body_format=2 — метаданные миграции подписанных значений.
+9 профилей State, общие для T и CT; каждый содержит 50 полей.
+Override один на весь Builder, хранится в settings, не в профилях.
+State — combobox. Shared, команда редактора и send to ct/t отсутствуют.
+Defensive/Choke/Hide Shots/Action Triggers и обработчик удалены по запросу.
+Оставшиеся исходные yaw/body поля сохранены; новые поля Pitch и body_delay.
+Body limits: -58..58; mode_ticks/mode_random: 1..32; body_jitter default=false.
+body_format=2 — метаданные миграции, не отдельный элемент меню.
 
-Намеренные изменения относительно Neverlose/редакции 1.4:
-left_limit, right_limit, from_limit, to_limit: -58..58, default -58/+58.
-mode_ticks и mode_random: 1..32 вместо 4..16.
-body_jitter по умолчанию false для стабильного Static.
-Добавлен независимый body_delay: 1..32, default=2.
-Yaw 0/1 отображается как Solo/Double.
-No Fall Damage и глобальный Force Break LC удалены по запросу; Tickbase в Builder.
-
-Фактическая схема текущей Lua:
+Схема текущей Lua:
 
 apply_delay: check; default=false
 body_delay: slider; 1..32; default=2
 body_jitter: check; default=false
 body_yaw: check; default=false
-choke1_1: slider; 1..32; default=1
-choke1_10: slider; 1..32; default=1
-choke1_2: slider; 1..32; default=1
-choke1_3: slider; 1..32; default=1
-choke1_4: slider; 1..32; default=1
-choke1_5: slider; 1..32; default=1
-choke1_6: slider; 1..32; default=1
-choke1_7: slider; 1..32; default=1
-choke1_8: slider; 1..32; default=1
-choke1_9: slider; 1..32; default=1
-choke_from: slider; 1..32; default=32
-choke_method: combo; Default / Custom; default=Default
-choke_slider: slider; 1..32; default=16
-choke_sliders: slider; 2..10; default=2
-choke_to: slider; 1..32; default=32
-defensive_choke: combo; Default / Custom; default=Default
-defensive_enabled: check; default=false
 delay_1: slider; 1..22; default=1
 delay_10: slider; 1..22; default=1
 delay_2: slider; 1..22; default=1
@@ -61,7 +39,6 @@ mode_random: slider; 1..32; default=4
 mode_ticks: slider; 1..32; default=4
 modifier_offset: slider; -180..180; default=0
 pitch: combo; Disabled / Down / Up / Minimal / Random; default=Down
-random_choke: check; default=false
 randomize_1: slider; -180..180; default=0
 randomize_10: slider; -180..180; default=0
 randomize_2: slider; -180..180; default=0
@@ -84,5 +61,5 @@ yaw: slider; 0..1; default=0
 yaw_modifier: combo; Disabled / Center / Offset / Random / Spin / 3-Way / 5-Way; default=Disabled
 yaw_offset: slider; -180..180; default=0
 
-Проверки подтверждают наличие/сохранение полей и запрошенные изменения схемы.
-Они не подтверждают одинаковую внутреннюю механику клиентов или запуск в игре.
+Сверка подтверждает наличие полей и запрошенные изменения структуры.
+Она не подтверждает идентичность внутренних алгоритмов или запуск в настоящем GS.
