@@ -1,11 +1,11 @@
--- Gazolina 421 | GameSense CS:GO port | revision 1.2
+-- Gazolina 421 | GameSense CS:GO port | revision 1.3
 -- Original input: Gazolina421.lua (Neverlose v3 / CS:GO).
 -- Menu: AA -> Anti-aimbot angles. LuaJIT 5.1.
 -- No Neverlose modules, downloads, signature scans or remote code are used.
 -- See README.txt / Gazolina421_gamesense_README.txt for API differences.
 
 local G = {
-    version = 1, revision = "1.2", controls = {}, order = {}, profiles = {}, profile_schema = {},
+    version = 1, revision = "1.3", controls = {}, order = {}, profiles = {}, profile_schema = {},
     loading = true, refs = {}, overrides = {}, cv_cache = {}, shots = {},
     states = {"Standing", "Running", "Slowing", "Crouching", "Sneaking", "Air", "Air Crouching", "Manuals", "Safe Head"},
     teams = {"T", "CT"}, editor_team = "T", editor_state = "Standing",
@@ -112,144 +112,6 @@ G.find("strafe", "MISC", "Movement", "Air strafe")
 G.find("bhop", "MISC", "Movement", "Bunny hop")
 G.find("quick_stop", "MISC", "Movement", "Fast walk")
 
--- The uploaded inline-button example describes this build's private layout.
--- All pointer access is checked before dereferencing; pcall alone cannot catch
--- an access violation. Only buttons identified as newly created by this script
--- may be resized. A layout mismatch leaves ordinary native buttons intact.
-function G.make_button_layout(memory, base)
-    local layout={memory=memory,base=base,slots={},claimed={},rows={}}
-    function layout:vector(address,maximum)
-        local m=self.memory
-        if not m.readable(address,8) then return end
-        local first,last=m.ptr(address),m.ptr(address+4)
-        if first==0 and last==0 then return 0,0 end
-        local bytes=last-first
-        if first<65536 or bytes<0 or bytes%4~=0 or bytes/4>maximum then return end
-        if bytes>0 and not m.readable(first,bytes) then return end
-        return first,bytes/4
-    end
-    function layout:scan()
-        local m=self.memory
-        local first,count=self:vector(self.base+0x54,32)
-        if not first or count==0 then return end
-        local found,visited={},0
-        for ti=0,count-1 do
-            local tab=m.ptr(first+ti*4)
-            local children,n=self:vector(tab+0x70,64)
-            if children then for ci=0,n-1 do
-                local child=m.ptr(children+ci*4)
-                local elements,total=self:vector(child+0x80,4096)
-                if elements then for ei=0,total-1 do
-                    visited=visited+1
-                    if visited>16384 then return end
-                    local ptr=m.ptr(elements+ei*4)
-                    if m.readable(ptr+0x18,0x20) and m.byte(ptr+0x19)==2 then found[ptr]=true end
-                end end
-            end end
-        end
-        return found
-    end
-    function layout:bind(key,before)
-        if not before then return false end
-        local after=self:scan()
-        if not after then return false end
-        local candidate,count=nil,0
-        for ptr in pairs(after) do
-            if not before[ptr] and not self.claimed[ptr] then candidate=ptr;count=count+1 end
-        end
-        if count~=1 or not self.memory.writable(candidate+0x18,0x20) then return false end
-        local m=self.memory
-        local slot={ptr=candidate,original={}}
-        for _,offset in ipairs({0x20,0x24,0x28,0x2c,0x30,0x34}) do slot.original[offset]=m.int(candidate+offset) end
-        slot.inline=m.byte(candidate+0x18)
-        self.slots[key]=slot;self.claimed[candidate]=true
-        return true
-    end
-    function layout:row(keys)
-        self.rows[#self.rows+1]=keys
-    end
-    function layout:apply(controls)
-        local m=self.memory
-        for _,keys in ipairs(self.rows) do
-            local visible,complete={},true
-            for _,key in ipairs(keys) do
-                local c=controls[key]
-                if c and c.visible then
-                    local slot=self.slots[key]
-                    if not slot or not m.writable(slot.ptr+0x18,0x20) or m.byte(slot.ptr+0x19)~=2 then complete=false;break end
-                    visible[#visible+1]=slot
-                end
-            end
-            if complete and #visible>0 then
-                local anchor=visible[1]
-                local x,y=m.int(anchor.ptr+0x20),m.int(anchor.ptr+0x24)
-                if x>-32768 and x<32768 and y>-32768 and y<32768 then
-                    local native_width=anchor.original[0x28] or 198
-                    if native_width<100 then native_width=198 end
-                    local scale=G.clamp(native_width/198,.5,3)
-                    local gap=math.max(2,math.floor(4*scale+.5))
-                    local available=math.floor(198*scale+.5)
-                    local width=math.floor((available-gap*(#visible-1))/#visible)
-                    width=math.min(width,math.floor(70*scale+.5))
-                    local height=math.max(14,math.floor(18*scale+.5))
-                    for i,slot in ipairs(visible) do
-                        local ptr=slot.ptr
-                        m.write_byte(ptr+0x18,i==1 and 0 or 1)
-                        m.write_int(ptr+0x20,x+(i-1)*(width+gap))
-                        m.write_int(ptr+0x24,y)
-                        for _,offset in ipairs({0x28,0x30}) do m.write_int(ptr+offset,width) end
-                        for _,offset in ipairs({0x2c,0x34}) do m.write_int(ptr+offset,height) end
-                    end
-                end
-            end
-        end
-    end
-    function layout:restore()
-        local m=self.memory
-        for _,slot in pairs(self.slots) do
-            if m.writable(slot.ptr+0x18,0x20) and m.byte(slot.ptr+0x19)==2 then
-                m.write_byte(slot.ptr+0x18,slot.inline)
-                for offset,value in pairs(slot.original) do m.write_int(slot.ptr+offset,value) end
-            end
-        end
-    end
-    return layout
-end
-function G.native_button_layout()
-    local ffi=G.optional("ffi")
-    if not ffi or not ffi.abi("win") or ffi.sizeof("void*")~=4 then return end
-    pcall(ffi.cdef,"unsigned long __stdcall VirtualQuery(const void*, void*, unsigned long);")
-    local kernel=ffi.load("kernel32")
-    local query=ffi.cast("unsigned long(__stdcall*)(const void*,void*,unsigned long)",kernel.VirtualQuery)
-    local info=ffi.new("struct { void* base; void* allocation; unsigned long allocation_protect; unsigned long size; unsigned long state; unsigned long protect; unsigned long type; }[1]")
-    local function allowed(address,size,write)
-        if type(address)~="number" or address<65536 or size<0 or address+size>4294967295 then return false end
-        if query(ffi.cast("const void*",address),info,ffi.sizeof(info))==0 then return false end
-        local p=tonumber(info[0].protect)
-        if tonumber(info[0].state)~=0x1000 or bit.band(p,0x100)~=0 then return false end
-        local access=bit.band(p,0xff)
-        local writable=access==4 or access==8 or access==0x40 or access==0x80
-        local readable=writable or access==2 or access==0x20
-        local start=tonumber(ffi.cast("uintptr_t",info[0].base))
-        return (write and writable or (not write and readable)) and address>=start and address+size<=start+tonumber(info[0].size)
-    end
-    local memory={
-        readable=function(a,n) return allowed(a,n,false) end,
-        writable=function(a,n) return allowed(a,n,true) end,
-        ptr=function(a) return tonumber(ffi.cast("uint32_t*",a)[0]) end,
-        int=function(a) return tonumber(ffi.cast("int32_t*",a)[0]) end,
-        byte=function(a) return tonumber(ffi.cast("uint8_t*",a)[0]) end,
-        write_int=function(a,v) ffi.cast("int32_t*",a)[0]=v end,
-        write_byte=function(a,v) ffi.cast("uint8_t*",a)[0]=v end,
-    }
-    local layout=G.make_button_layout(memory,0x434799AC)
-    if layout:scan() then return layout end
-end
-do
-    local ok,layout=pcall(G.native_button_layout)
-    if ok then G.button_layout=layout end
-end
-
 G.native_angle_keys={"enabled","pitch","yaw_base","yaw","jitter","body","fs_body","freestanding","fake_limit","edge","roll"}
 function G.restore_native_visibility()
     local cache=G.native_visibility
@@ -323,15 +185,21 @@ end
 
 -- Native controls are shared by the selected state. All 18 profiles live in
 -- G.profiles; switching Team/State never overwrites another profile.
+function G.display_choice(key,value)
+    if key=="page" then return ({Angles="anti-aim",Other="other",Presets="configs"})[value] or value end
+    if (key=="yaw_modifier" or key=="pitch") and value=="Disabled" then return "off" end
+    return type(value)=="string" and value:lower() or value
+end
 function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     -- Buttons render embedded newlines literally in GameSense. Keep their
     -- names short and single-line; other controls retain their config IDs.
     local name = kind=="button" and label or (label .. "\nGazolina421_" .. key)
-    local before=kind=="button" and G.button_layout and G.button_layout:scan() or nil
     if kind == "slider" then default = G.clamp(math.floor(default or opts[1]), opts[1], opts[2]) end
     local ref, color_label
     if kind == "check" then ref = ui.new_checkbox("AA", "Anti-aimbot angles", name)
-    elseif kind == "combo" then ref = ui.new_combobox("AA", "Anti-aimbot angles", name, unpack(opts))
+    elseif kind == "combo" then
+        local choices={};for i,value in ipairs(opts) do choices[i]=G.display_choice(key,value) end
+        ref = ui.new_combobox("AA", "Anti-aimbot angles", name, unpack(choices))
     elseif kind == "multi" then ref = ui.new_multiselect("AA", "Anti-aimbot angles", name, unpack(opts))
     elseif kind == "slider" then
         ref = ui.new_slider("AA", "Anti-aimbot angles", name, opts[1], opts[2], default or opts[1], true, opts.unit or "", opts.scale or 1, opts.tips)
@@ -346,58 +214,79 @@ function G.add(key, kind, label, page, part, opts, default, predicate, profile)
     end
     local item = {ref = ref, color_label = color_label, kind = kind, page = page, part = part, opts = opts, default = G.copy(default), predicate = predicate, profile = profile}
     G.controls[key] = item; G.order[#G.order + 1] = key
-    if kind=="button" and G.button_layout then G.button_layout:bind(key,before) end
     if profile then G.profile_schema[#G.profile_schema + 1] = key end
     if default ~= nil and kind ~= "slider" and kind ~= "label" and kind ~= "button" then
-        if kind == "color" then ui.set(ref, unpack(default)) else ui.set(ref, default) end
+        if kind == "color" then ui.set(ref, unpack(default))
+        elseif kind=="combo" then ui.set(ref,G.display_choice(key,default))
+        else ui.set(ref, default) end
     end
     return ref
 end
 function G.get(key)
     local item = G.controls[key]
     if item.kind == "color" then return {ui.get(item.ref)} end
-    return ui.get(item.ref)
+    local value=ui.get(item.ref)
+    if item.kind=="combo" then
+        for _,choice in ipairs(item.opts) do if G.display_choice(key,choice)==value then return choice end end
+    end
+    return value
 end
 function G.set(key, v)
     local item = G.controls[key]
-    if item.kind == "color" then ui.set(item.ref, unpack(v)) else ui.set(item.ref, v) end
+    if item.kind == "color" then ui.set(item.ref, unpack(v))
+    elseif item.kind=="combo" then ui.set(item.ref,G.display_choice(key,v))
+    else ui.set(item.ref, v) end
 end
 function G.profile() return G.profiles[G.editor_team][G.editor_state] end
 function G.is_enabled() return G.get("master") end
-G.navigation={}
-G.button_rows={}
 function G.invoke(key)
-    local nav=G.navigation[key]
-    if nav then G.set(nav.target,nav.value)
+    if key=="profile_apply" then
+        local action=({Copy="copy",Paste="paste",["Other team"]="opposite",Reset="reset_state",["Shuffle timing"]="shuffle_delay",["Shuffle offsets"]="shuffle_modifier",["Shuffle choke"]="shuffle_choke"})[G.get("profile_action")]
+        if action then G.actions[action]() end
+    elseif key=="preset_apply" then
+        local action="preset_"..G.get("preset_action"):lower()
+        if G.actions[action] then G.actions[action]() end
     elseif G.actions and G.actions[key] then G.actions[key]() end
-end
-function G.button_row(keys)
-    G.button_rows[#G.button_rows+1]=keys
-    if G.button_layout then G.button_layout:row(keys) end
-end
-function G.nav_row(target,items,page,part,predicate)
-    local keys={}
-    for _,item in ipairs(items) do
-        local key="nav_"..target.."_"..tostring(#keys+1)
-        G.navigation[key]={target=target,value=item[2]}
-        G.add(key,"button",item[1],page,part,nil,nil,predicate)
-        keys[#keys+1]=key
-    end
-    G.button_row(keys)
-    G.controls[target].hidden=true
 end
 function G.profile_default()
     local p = {}; for _, k in ipairs(G.profile_schema) do p[k] = G.copy(G.controls[k].default) end; return p
+end
+function G.refresh_editor_view()
+    if not G.controls.body_mode or not G.profiles[G.editor_team] then return end
+    local p=G.profile()
+    local old=G.loading;G.loading=true
+    G.set("add_yaw",p.yaw==1)
+    G.set("body_mode",p.body_yaw and p.mode or "Off")
+    G.set("force_break_lc",G.has(G.get("break_lc"),G.editor_state))
+    G.loading=old
+end
+function G.edit_from_view(key)
+    local old=G.loading;G.loading=true
+    if key=="add_yaw" then G.set("yaw",G.get("add_yaw") and 1 or 0)
+    elseif key=="body_mode" then
+        local mode=G.get("body_mode")
+        G.set("body_yaw",mode~="Off")
+        if mode~="Off" then G.set("mode",mode) end
+    elseif key=="force_break_lc" then
+        local states={}
+        for _,state in ipairs(G.get("break_lc")) do if state~=G.editor_state then states[#states+1]=state end end
+        if G.get("force_break_lc") then states[#states+1]=G.editor_state end
+        G.set("break_lc",states)
+    end
+    G.loading=old
+    G.save_editor()
 end
 function G.save_editor()
     if G.loading then return end
     local p = G.profile()
     for _, key in ipairs(G.profile_schema) do p[key] = G.copy(G.get(key)) end
+    G.refresh_editor_view()
 end
 function G.load_editor()
     local old = G.loading; G.loading = true
     local p = G.profile()
     for _, key in ipairs(G.profile_schema) do G.set(key, p[key]) end
+    G.refresh_editor_view()
     G.loading = old
 end
 function G.visibility()
@@ -408,9 +297,13 @@ function G.visibility()
         local visible = true
         if c.page then visible = enabled and (c.page == "*" or c.page == page) end
         if visible and c.part then
-            visible = c.part == G.get(page == "Angles" and "angles_page" or "other_page")
+            local part=G.get(page == "Angles" and "angles_page" or "other_page")
+            if page=="Angles" and part=="Builder" and c.part=="Tickbase" and G.builder_defensive_keys and G.builder_defensive_keys[key] then
+                visible=G.get("builder_defensive")
+            else visible=c.part==part end
         end
         if visible and c.predicate then visible = c.predicate() end
+        if visible and G.body_detail_keys and G.body_detail_keys[key] then visible=G.get("body_advanced") end
         if visible and G.sections and G.sections[key] then
             local section=G.sections[key]
             visible=G.get(section.target)==section.value
@@ -427,78 +320,67 @@ function G.profile_control(key, kind, name, opts, default, predicate, part)
 end
 
 G.add("master", "check", "Gazolina", nil, nil, nil, false)
-G.add("page", "combo", "Gazolina", "*", nil, {"Presets", "Angles", "Other"}, "Angles")
-G.nav_row("page",{{"AA","Angles"},{"Other","Other"},{"Configs","Presets"}},"*")
-G.add("angles_page", "combo", "Angles", "Angles", nil, {"Builder", "Tickbase", "Hotkeys", "Options"}, "Builder")
-G.nav_row("angles_page",{{"Builder","Builder"},{"Ticks","Tickbase"},{"Keys","Hotkeys"},{"Options","Options"}},"Angles")
-G.add("team", "combo", "Team", "Angles", nil, G.teams, "T", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
-G.nav_row("team",{{"T","T"},{"CT","CT"}},"Angles",nil,function() return G.get("angles_page")=="Builder" or G.get("angles_page")=="Tickbase" end)
-G.add("state", "combo", "State", "Angles", nil, G.states, "Standing", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
-G.add("copy", "button", "Copy", "Angles", "Builder")
-G.add("paste", "button", "Paste", "Angles", "Builder")
-G.add("opposite", "button", "Team", "Angles", "Builder")
-G.add("reset_state", "button", "Reset", "Angles", "Builder")
-G.button_row({"copy","paste","opposite","reset_state"})
-G.add("builder_section","combo","Builder section","Angles","Builder",{"Yaw","Mod","Body"},"Yaw")
-G.nav_row("builder_section",{{"Yaw","Yaw"},{"Mod","Mod"},{"Body","Body"}},"Angles","Builder")
-G.add("manual_builder_note", "label", "Manual direction overrides the state's yaw offset.", "Angles", "Builder", nil, nil, function() return G.get("state")=="Manuals" end)
-G.add("yaw_header", "label", "\a9CA7E1FFYaw", "Angles", "Builder")
-G.profile_control("yaw", "slider", "Mode", {0, 1, tips = {[0] = "Off", [1] = "Dual"}}, 0)
-G.profile_control("yaw_offset", "slider", "Yaw Offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
-G.profile_control("left_yaw", "slider", "Left Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
-G.profile_control("right_yaw", "slider", "Right Yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
-G.profile_control("apply_delay", "check", "Apply Delay", nil, false, function() return G.get("yaw") == 1 end)
-G.profile_control("delay_method", "combo", "Method", {"Default", "Random", "Ways"}, "Default", function() return G.get("yaw") == 1 and G.get("apply_delay") end)
-G.profile_control("delay_default", "slider", "Timing", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Default" end)
+G.add("page", "combo", "", "*", nil, {"Presets", "Angles", "Other"}, "Angles")
+G.add("angles_page", "combo", "", "Angles", nil, {"Builder", "Tickbase", "Hotkeys", "Options"}, "Builder")
+G.add("profile_options","check","profile options","Angles","Builder",nil,false)
+G.add("team", "combo", "team", "Angles", nil, G.teams, "T", function() return G.get("angles_page")=="Tickbase" or (G.get("angles_page")=="Builder" and G.get("profile_options")) end)
+G.add("state", "combo", "\aB4CE00FFstate", "Angles", nil, G.states, "Standing", function() return G.get("angles_page") == "Builder" or G.get("angles_page") == "Tickbase" end)
+G.add("profile_action","combo","action","Angles","Builder",{"Copy","Paste","Other team","Reset","Shuffle timing","Shuffle offsets","Shuffle choke"},"Copy",function() return G.get("profile_options") end)
+G.add("profile_apply","button","apply","Angles","Builder",nil,nil,function() return G.get("profile_options") end)
+G.profile_control("pitch","combo","pitch",{"Disabled","Down","Up","Minimal","Random"},"Down")
+G.profile_control("yaw", "slider", "mode", {0, 1, tips = {[0] = "Off", [1] = "Dual"}}, 0)
+G.profile_control("yaw_offset", "slider", "yaw offset", {-180, 180}, 0, function() return G.get("yaw") == 0 end)
+G.add("add_yaw","check","~ add yaw","Angles","Builder",nil,false)
+G.profile_control("left_yaw", "slider", "left yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
+G.profile_control("right_yaw", "slider", "right yaw", {-180, 180}, 0, function() return G.get("yaw") == 1 end)
+G.profile_control("apply_delay", "check", "apply delay", nil, false, function() return G.get("yaw") == 1 end)
+G.profile_control("delay_method", "combo", "method", {"Default", "Random", "Ways"}, "Default", function() return G.get("yaw") == 1 and G.get("apply_delay") end)
+G.profile_control("delay_default", "slider", "timing", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Default" end)
 G.profile_control("delay_random_min", "slider", "[1]", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Random" end)
 G.profile_control("delay_random_max", "slider", "[2]", {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Random" end)
-G.profile_control("delay_custom_sliders", "slider", "Ways", {1, 10}, 2, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Ways" end)
+G.profile_control("delay_custom_sliders", "slider", "ways", {1, 10}, 2, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Ways" end)
 for i = 1, 10 do
     G.profile_control("delay_" .. i, "slider", "Timing " .. i, {1, 22}, 1, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Ways" and G.get("delay_custom_sliders") >= i end)
 end
-G.add("shuffle_delay", "button", "Mix yaw", "Angles", "Builder", nil, nil, function() return G.get("yaw") == 1 and G.get("apply_delay") and G.get("delay_method") == "Ways" end)
-G.button_row({"shuffle_delay"})
-G.add("modifier_header", "label", "\a9CA7E1FFYaw Modifier", "Angles", "Builder")
-G.profile_control("yaw_modifier", "combo", "Type", {"Disabled", "Center", "Offset", "Random", "Spin", "3-Way", "5-Way"}, "Disabled")
-G.profile_control("modifier_offset", "slider", "Offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and not G.get("randomize_modifier") end)
-G.profile_control("randomize_modifier", "check", "Randomize", nil, false, function() return G.get("yaw_modifier") ~= "Disabled" end)
-G.profile_control("randomize_mode", "combo", "Method", {"Default", "Ways"}, "Default", function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") end)
-G.profile_control("randomize_min", "slider", "Min. Offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Default" end)
-G.profile_control("randomize_max", "slider", "Max. Offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Default" end)
-G.profile_control("randomize_custom_sliders", "slider", "Ways", {2, 10}, 2, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Ways" end)
+G.profile_control("yaw_modifier", "combo", "yaw jitter", {"Disabled", "Center", "Offset", "Random", "Spin", "3-Way", "5-Way"}, "Disabled")
+G.profile_control("modifier_offset", "slider", "offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and not G.get("randomize_modifier") end)
+G.profile_control("randomize_modifier", "check", "randomize", nil, false, function() return G.get("yaw_modifier") ~= "Disabled" end)
+G.profile_control("randomize_mode", "combo", "method", {"Default", "Ways"}, "Default", function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") end)
+G.profile_control("randomize_min", "slider", "min. offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Default" end)
+G.profile_control("randomize_max", "slider", "max. offset", {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Default" end)
+G.profile_control("randomize_custom_sliders", "slider", "ways", {2, 10}, 2, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Ways" end)
 for i = 1, 10 do
     G.profile_control("randomize_" .. i, "slider", "Offset " .. i, {-180, 180}, 0, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Ways" and G.get("randomize_custom_sliders") >= i end)
 end
-G.add("shuffle_modifier", "button", "Mix mod", "Angles", "Builder", nil, nil, function() return G.get("yaw_modifier") ~= "Disabled" and G.get("randomize_modifier") and G.get("randomize_mode") == "Ways" end)
-G.button_row({"shuffle_modifier"})
-G.add("body_header", "label", "\a9CA7E1FFBody Yaw", "Angles", "Builder")
-G.profile_control("body_yaw", "check", "Body Yaw", nil, false)
-G.profile_control("body_jitter", "check", "Jitter", nil, true, function() return G.get("body_yaw") and not G.get("apply_delay") end)
-G.profile_control("inverter", "check", "Inverter", nil, false, function() return G.get("body_yaw") and not G.get("apply_delay") and not G.get("body_jitter") end)
-G.profile_control("mode", "combo", "Mode", {"Static", "Ticks", "Random"}, "Static", function() return G.get("body_yaw") end)
-G.profile_control("mode_ticks", "slider", "Ticks", {4, 16, unit = "t"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Ticks" end)
-G.profile_control("mode_random", "slider", "Random Ticks", {4, 16, unit = "x"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Random" end)
-G.profile_control("limit_mode", "combo", "Limit Mode", {"Default", "Switch", "Random"}, "Default", function() return G.get("body_yaw") end)
-G.profile_control("left_limit", "slider", "Left Limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
-G.profile_control("right_limit", "slider", "Right Limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
-G.profile_control("from_limit", "slider", "From", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
-G.profile_control("to_limit", "slider", "To", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
+G.add("body_mode","combo","body yaw","Angles","Builder",{"Off","Static","Ticks","Random"},"Off")
+G.add("body_advanced","check","body settings","Angles","Builder",nil,false,function() return G.get("body_yaw") end)
+G.profile_control("body_yaw", "check", "body yaw", nil, false)
+G.profile_control("body_jitter", "check", "jitter", nil, true, function() return G.get("body_yaw") and not G.get("apply_delay") end)
+G.profile_control("inverter", "check", "inverter", nil, false, function() return G.get("body_yaw") and not G.get("apply_delay") and not G.get("body_jitter") end)
+G.profile_control("mode", "combo", "mode", {"Static", "Ticks", "Random"}, "Static", function() return G.get("body_yaw") end)
+G.profile_control("mode_ticks", "slider", "ticks", {4, 16, unit = "t"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Ticks" end)
+G.profile_control("mode_random", "slider", "random ticks", {4, 16, unit = "x"}, 4, function() return G.get("body_yaw") and G.get("mode") == "Random" end)
+G.profile_control("limit_mode", "combo", "limit mode", {"Default", "Switch", "Random"}, "Default", function() return G.get("body_yaw") end)
+G.profile_control("left_limit", "slider", "left limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
+G.profile_control("right_limit", "slider", "right limit", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") == "Default" end)
+G.profile_control("from_limit", "slider", "from", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
+G.profile_control("to_limit", "slider", "to", {0, 60}, 60, function() return G.get("body_yaw") and G.get("limit_mode") ~= "Default" end)
 
+G.add("force_break_lc","check","\aB4CE00FFforce break lc","Angles","Builder",nil,false)
+G.add("builder_defensive","check","defensive settings","Angles","Builder",nil,false)
 G.add("break_lc", "multi", "Break LC", "Angles", "Tickbase", G.states, {})
 G.add("break_triggers", "multi", "Action Triggers", "Angles", "Tickbase", {"Weapon Swap", "Weapon Reload"}, {})
 G.add("hide_shots", "combo", "Hide Shots", "Angles", "Tickbase", {"Favor Fire Rate", "Favor Fake Lag", "Break LC"}, "Favor Fire Rate")
-G.profile_control("defensive_choke", "combo", "Mode", {"Default", "Custom"}, "Default", nil, "Tickbase")
-G.profile_control("random_choke", "check", "Randomize", nil, false, function() return G.get("defensive_choke") == "Custom" end, "Tickbase")
-G.profile_control("choke_slider", "slider", "Choke", {1, 32}, 16, function() return G.get("defensive_choke") == "Custom" and not G.get("random_choke") end, "Tickbase")
-G.profile_control("choke_method", "combo", "Method", {"Default", "Custom"}, "Default", function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") end, "Tickbase")
+G.profile_control("defensive_choke", "combo", "mode", {"Default", "Custom"}, "Default", nil, "Tickbase")
+G.profile_control("random_choke", "check", "randomize", nil, false, function() return G.get("defensive_choke") == "Custom" end, "Tickbase")
+G.profile_control("choke_slider", "slider", "choke", {1, 32}, 16, function() return G.get("defensive_choke") == "Custom" and not G.get("random_choke") end, "Tickbase")
+G.profile_control("choke_method", "combo", "method", {"Default", "Custom"}, "Default", function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") end, "Tickbase")
 G.profile_control("choke_from", "slider", "[1]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Tickbase")
 G.profile_control("choke_to", "slider", "[2]", {1, 32}, 32, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Default" end, "Tickbase")
-G.profile_control("choke_sliders", "slider", "Sliders", {2, 10}, 2, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end, "Tickbase")
+G.profile_control("choke_sliders", "slider", "sliders", {2, 10}, 2, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end, "Tickbase")
 for i = 1, 10 do
     G.profile_control("choke1_" .. i, "slider", "Choke " .. i, {1, 32}, 1, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" and G.get("choke_sliders") >= i end, "Tickbase")
 end
-G.add("shuffle_choke", "button", "Mix ticks", "Angles", "Tickbase", nil, nil, function() return G.get("defensive_choke") == "Custom" and G.get("random_choke") and G.get("choke_method") == "Custom" end)
-G.button_row({"shuffle_choke"})
 
 G.add("freestanding", "check", "Freestanding", "Angles", "Hotkeys", nil, false)
 G.add("fs_key", "hotkey", "Freestanding key", "Angles", "Hotkeys")
@@ -513,8 +395,7 @@ G.add("manual_left", "hotkey", "Manual Left", "Angles", "Hotkeys")
 G.add("manual_right", "hotkey", "Manual Right", "Angles", "Hotkeys")
 G.add("manual_forward", "hotkey", "Manual Forward", "Angles", "Hotkeys")
 G.add("manual_reset", "hotkey", "Reset Manuals", "Angles", "Hotkeys")
-G.add("options_section","combo","Options section","Angles","Options",{"Brute","Safe","Warmup"},"Brute")
-G.nav_row("options_section",{{"Brute","Brute"},{"Safe","Safe"},{"Warmup","Warmup"}},"Angles","Options")
+G.add("options_section","combo","","Angles","Options",{"Brute","Safe","Warmup"},"Brute")
 G.add("anti_bruteforce", "check", "Anti-Bruteforce", "Angles", "Options", nil, false)
 G.add("brute_states", "multi", "Conditions", "Angles", "Options", G.states, {}, function() return G.get("anti_bruteforce") end)
 G.add("brute_mode", "combo", "Mode", "Angles", "Options", {"Increasing", "Decreasing", "Meta"}, "Increasing", function() return G.get("anti_bruteforce") end)
@@ -529,10 +410,8 @@ G.add("warmup_speed", "slider", "Speed", "Angles", "Options", {0, 100, unit = "%
 G.add("warmup_left", "slider", "Left", "Angles", "Options", {-180, 180}, 0, function() return G.get("warmup") and G.get("warmup_yaw") == "L&R" end)
 G.add("warmup_right", "slider", "Right", "Angles", "Options", {-180, 180}, 0, function() return G.get("warmup") and G.get("warmup_yaw") == "L&R" end)
 
-G.add("other_page", "combo", "Other", "Other", nil, {"Animations", "Movement", "Visuals", "Log Events", "Shared ESP"}, "Visuals")
-G.nav_row("other_page",{{"Anim","Animations"},{"Move","Movement"},{"Visual","Visuals"},{"Logs","Log Events"},{"ESP","Shared ESP"}},"Other")
-G.add("visuals_section","combo","Visuals section","Other","Visuals",{"View","Scope","Hits","Arrows","Extra"},"View")
-G.nav_row("visuals_section",{{"View","View"},{"Scope","Scope"},{"Hits","Hits"},{"Arrows","Arrows"},{"Extra","Extra"}},"Other","Visuals")
+G.add("other_page", "combo", "", "Other", nil, {"Animations", "Movement", "Visuals", "Log Events", "Shared ESP"}, "Visuals")
+G.add("visuals_section","combo","","Other","Visuals",{"View","Scope","Hits","Arrows","Extra"},"View")
 G.add("move_lean", "slider", "Move Lean", "Other", "Animations", {-1, 100, tips = {[-1] = "Disabled"}, unit = "%"}, 0)
 G.add("jitter_legs", "check", "Jitter Legs", "Other", "Animations", nil, false)
 G.add("animation_note", "label", "Move Lean needs gamesense/entity.", "Other", "Animations", nil, nil, function() return not G.entity_lib end)
@@ -580,34 +459,31 @@ G.add("shared_esp", "check", "Shared ESP", "Other", "Shared ESP", nil, false, fu
 G.add("shared_note", "label", "Uses native GameSense Shared ESP when available.", "Other", "Shared ESP")
 
 G.add("presets_header", "label", "\a9CA7E1FFPresets", "Presets")
-G.add("preset_export", "button", "Export", "Presets")
-G.add("preset_import", "button", "Import", "Presets")
-G.add("preset_new", "button", "New", "Presets")
-G.add("preset_sort", "button", "Sort", "Presets")
-G.button_row({"preset_export","preset_import","preset_new","preset_sort"})
+G.add("preset_action","combo","action","Presets",nil,{"New","Save","Load","Delete","Export","Import","Sort"},"Save")
+G.add("preset_apply","button","run","Presets")
 G.add("preset_search", "text", "Search", "Presets", nil, nil, "")
 G.add("preset_list", "list", "Configs", "Presets", nil, {"(empty)"})
 G.add("preset_name", "text", "Name", "Presets", nil, nil, "")
-G.add("preset_save", "button", "Save", "Presets")
-G.add("preset_load", "button", "Load", "Presets")
-G.add("preset_delete", "button", "Delete", "Presets")
-G.button_row({"preset_save","preset_load","preset_delete"})
 G.add("preset_info", "label", "Author: -\nUpdated: -", "Presets")
 G.add("preset_note", "label", "Clipboard actions need gamesense/clipboard.", "Presets", nil, nil, nil, function() return not G.clipboard end)
 G.storage = ui.new_string("Gazolina421_profiles_v1", "")
+
+-- Compact reference layout: hidden source controls back the friendly checkboxes
+-- and selectors, so the original configuration keys keep their meaning.
+G.controls.yaw.hidden=true
+G.controls.body_yaw.hidden=true
+G.controls.mode.hidden=true
+G.body_detail_keys={body_jitter=true,inverter=true,mode_ticks=true,mode_random=true,
+    limit_mode=true,left_limit=true,right_limit=true,from_limit=true,to_limit=true}
+G.builder_defensive_keys={break_triggers=true,hide_shots=true,defensive_choke=true,
+    random_choke=true,choke_slider=true,choke_method=true,choke_from=true,choke_to=true,choke_sliders=true}
+for i=1,10 do G.builder_defensive_keys["choke1_"..i]=true end
 
 -- Collapsible panels affect visibility only. Every value in every profile is
 -- retained even while its panel is closed.
 G.sections={}
 function G.section(target,value,keys)
     for _,key in ipairs(keys) do G.sections[key]={target=target,value=value} end
-end
-G.section("builder_section","Yaw",{"manual_builder_note","yaw_header","yaw","yaw_offset","left_yaw","right_yaw","apply_delay","delay_method","delay_default","delay_random_min","delay_random_max","delay_custom_sliders","shuffle_delay"})
-G.section("builder_section","Mod",{"modifier_header","yaw_modifier","modifier_offset","randomize_modifier","randomize_mode","randomize_min","randomize_max","randomize_custom_sliders","shuffle_modifier"})
-G.section("builder_section","Body",{"body_header","body_yaw","body_jitter","inverter","mode","mode_ticks","mode_random","limit_mode","left_limit","right_limit","from_limit","to_limit"})
-for i=1,10 do
-    G.section("builder_section","Yaw",{"delay_"..i})
-    G.section("builder_section","Mod",{"randomize_"..i})
 end
 G.section("options_section","Brute",{"anti_bruteforce","brute_states","brute_mode"})
 G.section("options_section","Safe",{"safe_head","safe_conditions","safe_height"})
@@ -626,7 +502,9 @@ end
 -- Versioned, validated JSON presets; no eval/loadstring is used on imports.
 G.non_setting = {master=true, page=true, angles_page=true,
     other_page=true, team=true, state=true, preset_search=true, preset_name=true,
-    preset_list=true, builder_section=true, options_section=true, visuals_section=true, manual_yaw=false}
+    preset_list=true, options_section=true, visuals_section=true, manual_yaw=false,
+    profile_options=true,profile_action=true,preset_action=true,add_yaw=true,body_mode=true,
+    body_advanced=true,force_break_lc=true,builder_defensive=true}
 function G.setting(c, key)
     return not c.profile and not G.non_setting[key] and
         c.kind ~= "label" and c.kind ~= "button" and c.kind ~= "hotkey" and c.kind ~= "list"
@@ -915,7 +793,7 @@ function G.aa(me,cmd)
     local p=G.profiles[team][state]
     local sent=cmd.chokedcommands==0
     if sent then r.sent=r.sent+1 end
-    local ctx={pitch="Down",yaw_base="At targets",offset=0,modifier=p.yaw_modifier,
+    local ctx={pitch=p.pitch or "Down",yaw_base="At targets",offset=0,modifier=p.yaw_modifier,
         modifier_offset=p.modifier_offset,body=p.body_yaw,freestanding=false}
     if p.yaw==1 then
         if p.apply_delay then
@@ -1030,7 +908,7 @@ function G.apply_aa(ctx,cmd)
         modifier="Disabled"
     end
     G.override("enabled",1,true)
-    local pitches={Disabled="Off",Down="Down",["Fake Up"]="Up",["Fake Down"]="Down"}
+    local pitches={Disabled="Off",Down="Down",Up="Up",Minimal="Minimal",Random="Random",["Fake Up"]="Up",["Fake Down"]="Down"}
     G.override("pitch",1,pitches[ctx.pitch] or "Down")
     G.override("yaw_base",1,ctx.yaw_base)
     G.override("yaw",1,"180")
@@ -1535,7 +1413,6 @@ function G.setup_command(cmd)
 end
 function G.paint_ui()
     G.sync_native_visibility()
-    if G.button_layout and ui.is_menu_open() then G.button_layout:apply(G.controls) end
     if not G.is_enabled() then if G.runtime.running then G.stop() end; return end
     G.runtime.running=true
     G.visual_cvars(entity.get_local_player())
@@ -1557,7 +1434,10 @@ for _,key in ipairs(G.order) do
     if c.kind~="label" and c.kind~="button" then
         ui.set_callback(c.ref,function()
             if G.loading then return end
-            if key=="team" or key=="state" then
+            if key=="add_yaw" or key=="body_mode" or key=="force_break_lc" then
+                G.edit_from_view(key)
+            elseif key=="break_lc" then G.refresh_editor_view()
+            elseif key=="team" or key=="state" then
                 G.save_editor(); G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
             elseif c.profile then G.save_editor()
             elseif key=="master" then if not G.is_enabled() then G.stop() end
@@ -1581,12 +1461,6 @@ if saved then G.guarded(function() G.apply_snapshot(saved) end) else G.load_edit
 G.editor_team=G.get("team"); G.editor_state=G.get("state"); G.load_editor()
 G.check_capabilities()
 G.update_presets(); G.visibility()
-if not G.button_layout then
-    local ffi=G.optional("ffi")
-    if ffi and ffi.abi("win") and ffi.sizeof("void*")==4 then
-        G.warn_once("compact_layout","This build does not match the supplied inline-button layout; single-line native buttons are retained.")
-    end
-end
 G.listen("setup_command",G.setup_command)
 G.listen("paint_ui",G.paint_ui)
 G.listen("paint",G.paint)
@@ -1619,6 +1493,5 @@ client.set_event_callback("shutdown",function()
     pcall(G.persist)
     pcall(G.stop)
     G.restore_native_visibility()
-    if G.button_layout then pcall(function() G.button_layout:restore() end) end
 end)
-G.log("Loaded. AA > Anti-aimbot angles > Gazolina")
+G.log("Loaded v"..G.revision..". AA > Anti-aimbot angles > Gazolina")
