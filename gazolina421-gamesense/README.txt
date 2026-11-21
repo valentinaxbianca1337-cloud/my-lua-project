@@ -2,6 +2,7 @@ GAZOLINA 421 — GameSense CS:GO
 ============================
 
 Файл: Gazolina421_gamesense.lua
+Редакция: 1.1. Формат JSON-пресетов остаётся v1, ранее созданные GS-пресеты сохраняются.
 Исходник: загруженный пользователем Gazolina421.lua, 4413 строк.
 Цель: GameSense для CS:GO, LuaJIT 5.1. Это не версия для CS2.
 
@@ -47,6 +48,10 @@ Manuals, Safe Head. Редактор один, но данные всех 18 п�
 
 Copy/Paste обмениваются выбранным состоянием через буфер обмена.
 Send to opposite team копирует выбранное состояние другой команде.
+Reset selected state сбрасывает только выбранный профиль, не затрагивая другую
+команду или остальные состояния. Под Team/State отображается редактируемый и
+активный в игре профиль. Yaw доступен для редактирования в том числе в Safe Head.
+Для Manuals итоговый yaw задаёт выбранное ручное направление; это указано в меню.
 Manual Left/Right/Forward: установи режим On hotkey; одно нажатие задаёт
 направление, повторное нажатие той же клавиши сбрасывает его.
 Reset Manuals сбрасывает направление. Manual Yaw можно выбрать и вручную.
@@ -57,14 +62,18 @@ Reset Manuals сбрасывает направление. Manual Yaw можно
 Neverlose/PUI/HTTP/HMAC/inspect/smoothy не нужны. Скрипт ничего не скачивает.
 
 Дополнительные библиотеки загружаются через pcall(require):
-  gamesense/clipboard    — Copy/Paste и Import/Export.
+  gamesense/clipboard    — Copy/Paste и Import/Export; при отсутствии используется
+                          встроенный адаптер VGUI_System010 на Windows/x86.
   gamesense/trace + vector — No Fall Damage и Grenade Release.
   gamesense/entity       — Move Lean.
   gamesense/csgo_weapons — точные параметры скорости оружия/броска гранаты.
 
 Используй соответствующие библиотеки GameSense из доверенного источника
-клиента/его Workshop. Если библиотека отсутствует, скрипт всё равно загружается;
-зависимая от неё функция не выполняется, а меню показывает пояснение.
+клиента/его Workshop. Если библиотека отсутствует, скрипт всё равно загружается.
+No Fall Damage / Grenade Release без trace, Move Lean без entity и Extended Ping
+Spike без штатного reference явно выключаются с пояснением в консоли. Они не
+остаются включёнными без действующего обработчика. После установки зависимости
+перезагрузи Lua. Если недоступны оба способа доступа к буферу, кнопки сообщат ошибку.
 Без csgo_weapons применяются запасные значения скорости.
 
 ПРЕСЕТЫ И КОНФИГИ
@@ -114,7 +123,9 @@ MessagePack + LZSS/Z85. Их сериализация и внутренние п
    не доступен как тот же источник данных. Hide Shots:
      Favor Fire Rate — восстановить исходный Double tap fake lag limit;
      Favor Fake Lag  — Double tap fake lag limit = 2;
-     Break LC        — force_defensive + Double tap fake lag limit = 1.
+     Break LC        — Double tap fake lag limit = 1; force_defensive следует
+                       выбранному интервалу Choke и Action Triggers.
+   В режиме Custom выбор Hide Shots -> Break LC не отменяет настроенный интервал.
    Это приближение; внутренние политики Neverlose не экспортируются GS API.
    Флаг force_defensive зависит от поддержки конкретной сборкой GameSense
    и активного Double tap/On shot anti-aim.
@@ -180,7 +191,20 @@ cvar, анимации, отрисовка, логи, пресеты, невал
 Дополнительно проверяются отсутствие необязательных библиотек/reference,
 вариант Freestanding с checkbox, значения cvar вне диапазона редактора,
 настоящая JSON-сериализация, полный обход 18 профилей и аварийное выключение.
-Все шесть дополнительных сценариев также пройдены: итого 41 сценарий.
+Все шесть дополнительных сценариев также пройдены.
+
+В редакции 1.1 добавлено ещё 13 сценариев: независимость всех значений,
+сброс состояния, доступность редактора Safe Head, комбинации режимов,
+Custom Choke с Hide Shots -> Break LC, Freestanding со строковым селектором,
+Ping spike с двумя reference и восстановлением hotkey mode, явная обработка
+недостающих trace/entity, приоритет одновременно нажатых клавиш, reload без
+доступного netprop, сброс временного состояния и адаптер буфера обмена.
+Итого: 54 сценария. Внутри проверки режимов выполнены 3402 комбинации.
+
+Схема исходного меню извлечена из загруженной Lua отдельным скриптом и сверена
+с редактором: 18 профилей, по 65 параметров, всего 1170 определений. Проверены
+названия ключей, типы, диапазоны, варианты списков и начальные значения.
+Пропущенных параметров исходного билдера не обнаружено. См. BUILDER_COVERAGE.txt.
 
 Сам GameSense и CS:GO в рабочей среде отсутствуют. Запуск в настоящем клиенте,
 наличие конкретных reference, поведение библиотек и результат в игре здесь
@@ -201,6 +225,8 @@ GameSense cvar:
 https://gamesensical.gitbook.io/docs/developers/globals/cvar
 GameSense renderer:
 https://gamesensical.gitbook.io/docs/developers/globals/renderer
+Интерфейс буфера обмена Source / VGUI:
+https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/vgui/ISystem.h
 Архивная официальная документация Neverlose:
 https://neverlose.gitbook.io/neverlose
 Ранее опубликованная документация Neverlose v3:
