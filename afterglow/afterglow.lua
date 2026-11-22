@@ -6365,6 +6365,10 @@ local ICON_PNG = table.concat({
   network = {},
   },
   gamesense_settings = {
+   neverlose_air_strafe = {
+    enabled = main_group:checkbox(pui.macros.dot .. " Neverlose Air Strafe"),
+    smoothing = main_group:slider(pui.macros.dot_accent .. " Strafe Smoothing", 0, 100, 50, true, "%"),
+   },
    accurate_quick_stop = {
     enabled = main_group:checkbox(pui.macros.dot .. " \aB4B465FFAccurate Quick Stop\r \a929292FF[MAY AFFECT VAR]\r"),
    },
@@ -6849,6 +6853,9 @@ Class.ui.menu.home_tab.info.branch:depend(home_panel_active)
 Class.ui.menu.home_tab.info.hitrate:depend(home_panel_active)
 Class.ui.menu.home_tab.info.version:depend(home_panel_active)
 Class.ui.menu.home_tab.info.session:depend(home_panel_active)
+-- Neverlose's normal/WASD air-strafe adaptation shares the GameSense settings page.
+Class.ui.menu.gamesense_settings.neverlose_air_strafe.enabled:depend(gamesense_settings_active, gamesense_settings_subtab_active)
+Class.ui.menu.gamesense_settings.neverlose_air_strafe.smoothing:depend({Class.ui.menu.gamesense_settings.neverlose_air_strafe.enabled, true}, gamesense_settings_active, gamesense_settings_subtab_active)
 -- Native GameSense fixes remain on their dedicated settings page.
 for _, control in ipairs({
  Class.ui.menu.gamesense_settings.accurate_quick_stop.enabled,
@@ -11007,6 +11014,168 @@ do
 end
 
 Class.gamesense = {
+neverlose_air_strafe = {
+ -- Normal/WASD branch recovered from the supplied nl.i64, image base 0x412A0000.
+ -- Main entry 0x41428EF0, named handler 0x41428FDE. This is a Lua adaptation;
+ -- native Neverlose addresses are never called in the GameSense process.
+ _numerator = 845.5, -- float at NL VA 0x4206CF00 in this particular database
+ _flip = false,
+ _reference = nil,
+ _resolved = false,
+ _saved_native = nil,
+ _last_command = nil,
+ _last_player = nil,
+ _last_output = nil,
+ _normalize = function(_, angle)
+  angle = math.fmod(angle, 360)
+  if angle > 180 then return angle - 360 end
+  if angle < -180 then return angle + 360 end
+  return angle
+ end,
+ _finite = function(_, value)
+  return type(value) == "number" and value == value and value > -math.huge and value < math.huge
+ end,
+ _reset = function(self)
+  self._flip = false
+  self._last_command, self._last_player, self._last_output = nil, nil, nil
+ end,
+ _read_native = function(self)
+  if not self._reference then return nil end
+  local ok, value = pcall(ui.get, self._reference)
+  if ok and type(value) == "boolean" then return value end
+  return nil
+ end,
+ _resolve = function(self)
+  if self._resolved then return self._reference ~= nil end
+  self._resolved = true
+  local ok, reference = pcall(ui.reference, "MISC", "Movement", "Air strafe")
+  if ok and reference then
+   self._reference = reference
+   if self:_read_native() == nil then self._reference = nil end
+  end
+  return self._reference ~= nil
+ end,
+ restore = function(self)
+  if self._saved_native ~= nil then
+   -- Restore only the false value held by this feature, not somebody else's edit.
+   if self:_read_native() == false and self._saved_native ~= false then
+    pcall(ui.set, self._reference, self._saved_native)
+   end
+   self._saved_native = nil
+  end
+  self:_reset()
+ end,
+ sync = function(self)
+  local menu = Class.ui.menu.gamesense_settings.neverlose_air_strafe
+  if not menu.enabled:get() then
+   if self._saved_native ~= nil then self:restore() end
+   return false
+  end
+  if not self:_resolve() or self:_read_native() == nil then
+   self:restore()
+   pcall(client.error_log, "[afterglow] Neverlose Air Strafe: native Air strafe reference is unavailable")
+   menu.enabled:set(false)
+   return false
+  end
+  if self._saved_native == nil then self._saved_native = self:_read_native() end
+  if self:_read_native() ~= false then pcall(ui.set, self._reference, false) end
+  if self:_read_native() ~= false then
+   self:restore()
+   pcall(client.error_log, "[afterglow] Neverlose Air Strafe: cannot disable native Air strafe")
+   menu.enabled:set(false)
+   return false
+  end
+  return true
+ end,
+ setup = function(self)
+  local menu = Class.ui.menu.gamesense_settings.neverlose_air_strafe
+  menu.enabled:set_callback(function() self:sync() end)
+  self:sync()
+ end,
+ _side_speed = function(self)
+  local speed = 450
+  if cvar and cvar.cl_sidespeed then
+   local ok, value = pcall(function() return cvar.cl_sidespeed:get_float() end)
+   if ok and self:_finite(value) and value ~= 0 then speed = math.abs(value) end
+  end
+  return math.min(speed, 450)
+ end,
+ _calculate = function(self, vx, vy, yaw, pitch, forward, side, smoothing, side_speed, flip)
+  -- AngleVectors(QAngles).xy * input, as in NL's WASD branch at 0x4142916A.
+  -- Source's right vector points clockwise: positive sidemove means right.
+  local has_input = forward ~= 0 or side ~= 0
+  if has_input then
+   local projected_forward = forward * math.cos(math.rad(pitch))
+   yaw = yaw + math.deg(math.atan2(-side, projected_forward))
+  end
+  yaw = self:_normalize(yaw)
+  local speed = math.sqrt(vx * vx + vy * vy)
+  local ideal = speed > 0 and math.min(self._numerator / speed, 90) or 90
+  local velocity_yaw = math.deg(math.atan2(vy, vx))
+  local delta = self:_normalize(yaw - velocity_yaw)
+  -- NL VA 0x41429352..0x41429363: ideal * 0.04f * (100 - setting).
+  local correction = ideal * 0.03999999910593033 * (100 - smoothing)
+  local out_yaw, out_side
+  if speed > 80 and ((has_input and math.abs(delta) > 170) or delta > correction) then
+   out_yaw, out_side = velocity_yaw + correction, -side_speed
+  elseif speed > 80 and delta < -correction then
+   out_yaw, out_side = velocity_yaw - correction, side_speed
+  elseif flip then
+   out_yaw, out_side = yaw - ideal, -side_speed
+  else
+   out_yaw, out_side = yaw + ideal, side_speed
+  end
+  return self:_normalize(out_yaw), out_side
+ end,
+ _apply = function(_, cmd, output)
+  cmd.forwardmove = 0
+  cmd.sidemove = output.side
+  -- GameSense keeps view yaw separate and carries movement through later AA fixes.
+  cmd.move_yaw = output.yaw
+ end,
+ handle = function(self, cmd)
+  if not self:sync() or not cmd then return end
+  local player = entity.get_local_player()
+  if not player or not entity.is_alive(player) or globals.mapname() == nil then
+   self:_reset()
+   return
+  end
+  if player ~= self._last_player then self:_reset(); self._last_player = player end
+  local flags = entity.get_prop(player, "m_fFlags")
+  local move_type = entity.get_prop(player, "m_MoveType")
+  local water = entity.get_prop(player, "m_nWaterLevel")
+  local walk = cmd.in_speed == 1 or cmd.in_speed == true
+  if type(flags) ~= "number" or bit.band(flags, 1) ~= 0 or move_type ~= 2
+    or (type(water) == "number" and water >= 2) or walk then
+   self._last_command, self._last_output = nil, nil
+   return
+  end
+  local vx, vy, vz = entity.get_prop(player, "m_vecVelocity")
+  if not self:_finite(vx) or not self:_finite(vy) or not self:_finite(vz) then return end
+  if vx == 0 and vy == 0 and vz == 0 then return end
+  local number = tonumber(cmd.command_number)
+  if number and number == self._last_command and self._last_output then
+   self:_apply(cmd, self._last_output)
+   return
+  end
+  local pitch, yaw = client.camera_angles()
+  if self:_finite(cmd.move_yaw) then pitch, yaw = 0, cmd.move_yaw end
+  if not self:_finite(pitch) or not self:_finite(yaw) then return end
+  pitch = math.max(-89, math.min(89, pitch))
+  local forward, side = cmd.forwardmove or 0, cmd.sidemove or 0
+  if not self:_finite(forward) or not self:_finite(side) then return end
+  local menu = Class.ui.menu.gamesense_settings.neverlose_air_strafe
+  local smoothing = tonumber(menu.smoothing:get()) or 50
+  smoothing = math.max(0, math.min(100, smoothing))
+  local out_yaw, out_side = self:_calculate(vx, vy, yaw, pitch, forward, side,
+    smoothing, self:_side_speed(), self._flip)
+  if not self:_finite(out_yaw) or not self:_finite(out_side) then return end
+  local output = {yaw = out_yaw, side = out_side}
+  self:_apply(cmd, output)
+  self._last_command, self._last_output = number, output
+  self._flip = not self._flip
+ end,
+},
  hide_shots_fakelag_fix = {
   _is_active = false,
   _saved_limit = nil,
@@ -20220,6 +20389,7 @@ end
 
 local function on_startup()
   Class.ui.setup_menu()
+  Class.gamesense.neverlose_air_strafe:setup()
   if Class.misc.optimize_cvars and Class.misc.optimize_cvars.setup then
     Class.misc.optimize_cvars:setup()
   end
@@ -20238,6 +20408,7 @@ local function on_startup()
   Class.util:hide_menu(false)
 end
 local function on_shutdown()
+  Class.gamesense.neverlose_air_strafe:restore()
   if Class.misc.unlock_hidden_cvars and Class.misc.unlock_hidden_cvars.shutdown then
     pcall(function() Class.misc.unlock_hidden_cvars:shutdown() end)
   end
@@ -20532,6 +20703,7 @@ local function on_paint()
   if Class.visuals.lock_bob then Class.visuals.lock_bob:update() end
 end
 local function on_paint_ui()
+  Class.gamesense.neverlose_air_strafe:sync()
   local record_fix = Class.gamesense.backtrack_record_fix
   if record_fix and next(record_fix._owned) then
     local menu = Class.ui.menu.gamesense_settings.backtrack_record_fix
@@ -20664,6 +20836,7 @@ local function on_setup_command(cmd)
   -- Flick is applied inside update_antiaim (builder pipeline) and owns only pitch; extended
   -- yaw keeps driving the fake angle, so the two run independently without fighting over yaw.
   if Class.antiaim.extended_yaw then Class.antiaim.extended_yaw:handle(cmd) end
+  Class.gamesense.neverlose_air_strafe:handle(cmd)
 end
 local function on_net_update_start()
   Class.network:update()
@@ -20727,6 +20900,7 @@ local function on_client_disconnect()
   end
 end
 local function on_level_init()
+  Class.gamesense.neverlose_air_strafe:_reset()
   if Class.misc.trash_talk then Class.misc.trash_talk:reset_match() end
   if Class.gamesense.accurate_quick_stop then
     pcall(function() Class.gamesense.accurate_quick_stop:restore() end)
