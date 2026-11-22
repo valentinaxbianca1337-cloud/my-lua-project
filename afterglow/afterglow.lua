@@ -6894,6 +6894,12 @@ do
 end
 
 local backtrack_record_fix_menu = Class.ui.menu.gamesense_settings.backtrack_record_fix
+backtrack_record_fix_menu.enabled:set_callback(function()
+ local fix = Class.gamesense and Class.gamesense.backtrack_record_fix
+ if not fix then return end
+ fix._failed = nil
+ if not backtrack_record_fix_menu.enabled:get() then fix:restore() end
+end)
 backtrack_record_fix_menu.enabled:depend(gamesense_settings_active, gamesense_settings_subtab_active)
 backtrack_record_fix_menu.lag_records:depend({backtrack_record_fix_menu.enabled, true}, gamesense_settings_active, gamesense_settings_subtab_active)
 backtrack_record_fix_menu.extended_lag_records:depend({backtrack_record_fix_menu.enabled, true}, {backtrack_record_fix_menu.lag_records, true}, gamesense_settings_active, gamesense_settings_subtab_active)
@@ -12436,9 +12442,10 @@ backtrack_record_fix = {
   _distance_addr = nil,
   _patches = nil,
   _lr_dynamic = nil,
-  _applied = {},
   _failed = nil,
   _owned = {},
+  _pending_memory = {},
+  _cleanup_warning = nil,
   _init = function(self)
     if self._patches then return true end
     pcall(function()
@@ -12541,7 +12548,8 @@ backtrack_record_fix = {
     local cursor, finish = address, address + length
     while cursor < finish do
       local info = ffi.new("afterglow_record_mbi_v1[1]")
-      if tonumber(api.query(cursor, info, ffi.sizeof(info))) ~= ffi.sizeof(info) then return false end
+      local query_ok, query_size = pcall(api.query, cursor, info, ffi.sizeof(info))
+      if not query_ok or tonumber(query_size) ~= ffi.sizeof(info) then return false end
       local region_end = tonumber(ffi.cast("uintptr_t", info[0].base)) + tonumber(info[0].region_size)
       local protection = tonumber(info[0].protect)
       local access = bit.band(protection, 0xFF)
@@ -12558,15 +12566,58 @@ backtrack_record_fix = {
     for i = 1, length do bytes[i] = pointer[i - 1] end
     return bytes
   end,
+  _valid_bytes = function(self, bytes)
+    if type(bytes) ~= "table" or #bytes == 0 or #bytes > 16 then return false end
+    for i = 1, #bytes do
+      local value = bytes[i]
+      if type(value) ~= "number" or value ~= value or value < 0 or value > 255
+        or value ~= math.floor(value) then return false end
+    end
+    return true
+  end,
+  _cleanup_memory = function(self, address)
+    local pending = self._pending_memory[address]
+    if not pending then return true end
+    if not self:_readable(address, pending.length) then return false end
+    local api = self:_memory_api()
+    if pending.protection ~= nil then
+      local old = ffi.new("uint32_t[1]")
+      local ok, result = pcall(api.protect, address, pending.length, pending.protection, old)
+      if ok and (tonumber(result) or 0) ~= 0 then pending.protection = nil end
+    end
+    if pending.flush then
+      local ok, result = pcall(function() return api.flush(api.process(), address, pending.length) end)
+      if ok and (tonumber(result) or 0) ~= 0 then pending.flush = nil end
+    end
+    if pending.protection == nil and not pending.flush then
+      self._pending_memory[address] = nil
+      return true
+    end
+    return false
+  end,
   _write = function(self, address, bytes)
-    if not self:_readable(address, #bytes) then return false end
+    if not self:_valid_bytes(bytes) or not self:_cleanup_memory(address)
+      or not self:_readable(address, #bytes) then return false end
+    -- Allocate before changing page permissions; allocation failure leaves memory alone.
+    local allocated, buffer = pcall(ffi.new, "uint8_t[?]", #bytes, bytes)
+    if not allocated then return false end
     local api, old = self:_memory_api(), ffi.new("uint32_t[1]")
-    if tonumber(api.protect(address, #bytes, 0x40, old)) == 0 then return false end
-    local buffer = ffi.new("uint8_t[?]", #bytes, bytes)
-    ffi.copy(ffi.cast("void*", address), buffer, #bytes)
-    local restored = tonumber(api.protect(address, #bytes, old[0], old)) ~= 0
-    local flushed = tonumber(api.flush(api.process(), address, #bytes)) ~= 0
-    return restored and flushed and self:_match(self:_read(address, #bytes), bytes)
+    local ok, result = pcall(api.protect, address, #bytes, 0x40, old)
+    if not ok or (tonumber(result) or 0) == 0 then return false end
+    local original_protection = tonumber(old[0])
+    local copied = pcall(ffi.copy, ffi.cast("void*", address), buffer, #bytes)
+    local restore_ok, restore_result = pcall(api.protect, address, #bytes, original_protection, old)
+    local restored = restore_ok and (tonumber(restore_result) or 0) ~= 0
+    local flush_ok, flush_result = pcall(function() return api.flush(api.process(), address, #bytes) end)
+    local flushed = flush_ok and (tonumber(flush_result) or 0) ~= 0
+    if not restored or not flushed then
+      self._pending_memory[address] = {
+        length = #bytes,
+        protection = not restored and original_protection or nil,
+        flush = not flushed or nil,
+      }
+    end
+    return copied and restored and flushed and self:_match(self:_read(address, #bytes), bytes)
   end,
   _match = function(self, a, b)
     if not a or not b or #a ~= #b then return false end
@@ -12574,23 +12625,62 @@ backtrack_record_fix = {
     return true
   end,
   restore = function(self)
-    local clean = true
     for address, owned in pairs(self._owned) do
       local current = self:_read(address, #owned.original)
       if self:_match(current, owned.original) then
-        self._owned[address] = nil
+        if self:_cleanup_memory(address) then self._owned[address] = nil end
       elseif self:_match(current, owned.patched) then
-        if self:_write(address, owned.original) then self._owned[address] = nil
-        else clean = false end
-      else
-        -- Another script changed the site. Never overwrite its bytes.
-        self._owned[address] = nil
-        clean = false
+        if self:_write(address, owned.original) then self._owned[address] = nil end
       end
+      -- Unreadable/foreign bytes are left intact, but ownership is retained.
+      -- If another Lua later restores our patch, cleanup can finish correctly.
+    end
+    for address in pairs(self._pending_memory) do self:_cleanup_memory(address) end
+    local clean = next(self._owned) == nil and next(self._pending_memory) == nil
+    if clean then
+      self._cleanup_warning = nil
+    elseif not self._cleanup_warning then
+      self._cleanup_warning = true
+      pcall(client.error_log, "[afterglow] Lag Records: cleanup pending; remaining sites are retained for a later retry")
     end
     return clean
   end,
+  _validate_plan = function(self, plan)
+    if type(plan) ~= "table" then return false, "invalid patch plan" end
+    for key in pairs(plan) do
+      if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > #plan then
+        return false, "invalid patch plan index"
+      end
+    end
+    local ranges = {}
+    for _, patch in ipairs(plan) do
+      if type(patch) ~= "table" or type(patch.address) ~= "number"
+        or patch.address ~= patch.address or patch.address < 0x10000
+        or patch.address > 0xFFFFFFFF or patch.address ~= math.floor(patch.address)
+        or not self:_valid_bytes(patch.original) or not self:_valid_bytes(patch.patched)
+        or #patch.original ~= #patch.patched or patch.address + #patch.original > 0x100000000 then
+        return false, "invalid patch descriptor"
+      end
+      ranges[#ranges + 1] = {first = patch.address, last = patch.address + #patch.original}
+    end
+    table.sort(ranges, function(a, b) return a.first < b.first end)
+    for i = 2, #ranges do
+      if ranges[i].first < ranges[i - 1].last then return false, "overlapping patch ranges" end
+    end
+    return true
+  end,
+  on_paint_ui = function(self)
+    local menu = Class.ui.menu.gamesense_settings.backtrack_record_fix
+    if menu and menu.enabled:get() and globals.mapname() ~= nil then return end
+    self._failed = nil
+    if next(self._owned) or next(self._pending_memory) then self:restore() end
+  end,
   _sync = function(self, plan)
+    local valid, reason = self:_validate_plan(plan)
+    if not valid then return false, reason end
+    for address in pairs(self._pending_memory) do
+      if not self:_cleanup_memory(address) then return false, "page protection or instruction-cache cleanup pending" end
+    end
     local wanted = {}
     -- Validate the entire requested patch set before changing a single byte.
     for _, patch in ipairs(plan) do
@@ -12645,7 +12735,7 @@ backtrack_record_fix = {
   handle = function(self)
     local menu = Class.ui.menu.gamesense_settings.backtrack_record_fix
     if not menu or not menu.enabled:get() or globals.mapname() == nil then
-      if next(self._owned) then self:restore() end
+      if next(self._owned) or next(self._pending_memory) then self:restore() end
       self._failed = nil
       return
     end
@@ -12654,6 +12744,7 @@ backtrack_record_fix = {
     else
       local extended = menu.extended_lag_records:get()
       local gap = tonumber((extended and menu.extended_record_gap or menu.record_gap):get()) or 3
+      if gap ~= gap or gap == math.huge or gap == -math.huge then gap = 3 end
       gap = math.max(1, math.min(extended and 20 or 10, math.floor(gap)))
       local ok, reason = self:_sync(self:_plan(menu.lag_records:get(), gap))
       if not ok then self._failed = reason or "patch validation failed" end
@@ -20533,10 +20624,7 @@ local function on_paint()
 end
 local function on_paint_ui()
   local record_fix = Class.gamesense.backtrack_record_fix
-  if record_fix and next(record_fix._owned) then
-    local menu = Class.ui.menu.gamesense_settings.backtrack_record_fix
-    if globals.mapname() == nil or not menu.enabled:get() then record_fix:restore() end
-  end
+  if record_fix then record_fix:on_paint_ui() end
   if Class.misc.clan_tag and Class.misc.clan_tag.update then
     Class.misc.clan_tag:update()
   end
