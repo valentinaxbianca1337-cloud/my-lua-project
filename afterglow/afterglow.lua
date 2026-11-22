@@ -11024,8 +11024,10 @@ neverlose_air_strafe = {
  _resolved = false,
  _saved_native = nil,
  _last_command = nil,
+ _command_flip = nil,
  _last_player = nil,
  _last_output = nil,
+ _last_input = nil,
  _normalize = function(_, angle)
   angle = math.fmod(angle, 360)
   if angle > 180 then return angle - 360 end
@@ -11037,7 +11039,9 @@ neverlose_air_strafe = {
  end,
  _reset = function(self)
   self._flip = false
+  self._command_flip = nil
   self._last_command, self._last_player, self._last_output = nil, nil, nil
+  self._last_input = nil
  end,
  _read_native = function(self)
   if not self._reference then return nil end
@@ -11127,14 +11131,40 @@ neverlose_air_strafe = {
   end
   return self:_normalize(out_yaw), out_side
  end,
- _apply = function(_, cmd, output)
-  cmd.forwardmove = 0
-  cmd.sidemove = output.side
-  -- GameSense keeps view yaw separate and carries movement through later AA fixes.
-  cmd.move_yaw = output.yaw
+ capture = function(self, cmd)
+  local menu = Class.ui.menu.gamesense_settings.neverlose_air_strafe
+  if not menu.enabled:get() or not cmd then return nil end
+  -- Capture before the builder/extended-yaw callbacks can change the command.
+  local pitch, yaw = client.camera_angles()
+  if self:_finite(cmd.pitch) then pitch = cmd.pitch end
+  if self:_finite(cmd.yaw) then yaw = cmd.yaw end
+  local forward, side = cmd.forwardmove or 0, cmd.sidemove or 0
+  if not self:_finite(pitch) or not self:_finite(yaw)
+    or not self:_finite(forward) or not self:_finite(side) then return nil end
+  return {pitch = math.max(-89, math.min(89, pitch)), yaw = yaw,
+    forward = forward, side = side}
  end,
- handle = function(self, cmd)
+ _apply = function(self, cmd, output, input)
+  -- Bake the desired world-space vector into the final command-yaw frame.
+  -- Equal view/move bases also work on builds that ignore move_yaw overrides.
+  local basis = self:_finite(cmd.yaw) and cmd.yaw or input.yaw
+  local delta = math.rad(self:_normalize(output.yaw - basis))
+  local forward = output.side * math.sin(delta)
+  local side = output.side * math.cos(delta)
+  if math.abs(forward) < 0.001 then forward = 0 end
+  if math.abs(side) < 0.001 then side = 0 end
+  cmd.forwardmove, cmd.sidemove = forward, side
+  cmd.move_yaw = basis
+  -- Keep movement bits consistent with the floats sent in this command.
+  cmd.in_forward = forward > 0 and 1 or 0
+  cmd.in_back = forward < 0 and 1 or 0
+  cmd.in_moveright = side > 0 and 1 or 0
+  cmd.in_moveleft = side < 0 and 1 or 0
+ end,
+ handle = function(self, cmd, input)
   if not self:sync() or not cmd then return end
+  input = input or self:capture(cmd)
+  if not input then return end
   local player = entity.get_local_player()
   if not player or not entity.is_alive(player) or globals.mapname() == nil then
    self:_reset()
@@ -11148,32 +11178,34 @@ neverlose_air_strafe = {
   if type(flags) ~= "number" or bit.band(flags, 1) ~= 0 or move_type ~= 2
     or (type(water) == "number" and water >= 2) or walk then
    self._last_command, self._last_output = nil, nil
+   self._last_input = nil
+   self._command_flip = nil
    return
   end
   local vx, vy, vz = entity.get_prop(player, "m_vecVelocity")
   if not self:_finite(vx) or not self:_finite(vy) or not self:_finite(vz) then return end
   if vx == 0 and vy == 0 and vz == 0 then return end
   local number = tonumber(cmd.command_number)
-  if number and number == self._last_command and self._last_output then
-   self:_apply(cmd, self._last_output)
-   return
-  end
-  local pitch, yaw = client.camera_angles()
-  if self:_finite(cmd.move_yaw) then pitch, yaw = 0, cmd.move_yaw end
-  if not self:_finite(pitch) or not self:_finite(yaw) then return end
-  pitch = math.max(-89, math.min(89, pitch))
-  local forward, side = cmd.forwardmove or 0, cmd.sidemove or 0
-  if not self:_finite(forward) or not self:_finite(side) then return end
+  if not self:_finite(number) or number <= 0 then number = nil end
+  local repeated = number ~= nil and number == self._last_command
+  if repeated and self._last_input then input = self._last_input end
+  local flip = self._flip
+  if repeated then flip = self._command_flip end
   local menu = Class.ui.menu.gamesense_settings.neverlose_air_strafe
   local smoothing = tonumber(menu.smoothing:get()) or 50
+  if not self:_finite(smoothing) then smoothing = 50 end
   smoothing = math.max(0, math.min(100, smoothing))
-  local out_yaw, out_side = self:_calculate(vx, vy, yaw, pitch, forward, side,
-    smoothing, self:_side_speed(), self._flip)
+  local out_yaw, out_side = self:_calculate(vx, vy, input.yaw, input.pitch,
+    input.forward, input.side, smoothing, self:_side_speed(), flip)
   if not self:_finite(out_yaw) or not self:_finite(out_side) then return end
   local output = {yaw = out_yaw, side = out_side}
-  self:_apply(cmd, output)
+  self:_apply(cmd, output, input)
   self._last_command, self._last_output = number, output
-  self._flip = not self._flip
+  self._last_input = input
+  if not repeated then
+   self._command_flip = flip
+   self._flip = not flip
+  end
  end,
 },
  hide_shots_fakelag_fix = {
@@ -20766,6 +20798,7 @@ local function arm_reset_fake_lag_on_shot()
 end
 
 local function on_setup_command(cmd)
+  local strafe_input = Class.gamesense.neverlose_air_strafe:capture(cmd)
   if Class.misc.unlock_hidden_cvars then Class.misc.unlock_hidden_cvars:sync() end
   -- optimize_cvars: only on UI change / level_init (never every tick — causes instability)
   if Class.misc.duck_peek_assist_fix then Class.misc.duck_peek_assist_fix:on_setup_command(cmd) end
@@ -20836,7 +20869,7 @@ local function on_setup_command(cmd)
   -- Flick is applied inside update_antiaim (builder pipeline) and owns only pitch; extended
   -- yaw keeps driving the fake angle, so the two run independently without fighting over yaw.
   if Class.antiaim.extended_yaw then Class.antiaim.extended_yaw:handle(cmd) end
-  Class.gamesense.neverlose_air_strafe:handle(cmd)
+  Class.gamesense.neverlose_air_strafe:handle(cmd, strafe_input)
 end
 local function on_net_update_start()
   Class.network:update()
