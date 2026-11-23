@@ -1,0 +1,56 @@
+{
+  "passed": true,
+  "version": "Improved Hitscan 1 + NL Movement",
+  "scope": "opt-in additional candidate-point generation",
+  "baseline": "e7f8160ac911e4ebf51709be6a69591ea00cce76",
+  "default": "disabled; GS mode",
+  "slider": "GS / NL / 10..112 additional point budget",
+  "total_native_capacity": 112,
+  "original_candidates_preserved": true,
+  "records_and_movement_sources_identical_to_ui2": true,
+  "nl_scope": "adapted generic capsule point-pattern; Source clipping and scale are adapters; boxes retain GS",
+  "full_neverlose_hitscan": false,
+  "native_point_dispatches": 1624,
+  "nl_pattern_reference_cases": 335,
+  "ui_slider_width_checks": 955,
+  "small_window_cases": 12,
+  "files": {
+    "skeet.dll": {
+      "bytes": 16570368,
+      "sha256": "3faad5c3f15295fa352a30dfcd4bb8713b6ef9a26faa6349f7fae863fec76460"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "4bc7a0a15b3a235dbadbacc6ddeb546b17b01161641e432c83165c7e19ca229e"
+    }
+  },
+  "verified_reports": [
+    "hitscan_nl_pattern.json",
+    "hitscan_points.json",
+    "hitscan_native.json",
+    "improved_native.json",
+    "improved_frame.json",
+    "improved_layout.json",
+    "source.json",
+    "hitscan_source_merge.json",
+    "windows_build_validation.json",
+    "movement_v2_windows.json",
+    "hitscan_value_text.json"
+  ],
+  "game_tested": false,
+  "fps_and_hitrate_measured": false,
+  "native_rendered_value_strings": [
+    "GS",
+    "NL",
+    "10",
+    "64",
+    "112"
+  ],
+  "archive": {
+    "path": "/workspace/output/Skeet_Improved_Hitscan1_Combined_x86.zip",
+    "bytes": 8670630,
+    "sha256": "32a27810c891c587972f0fd55d772a5321c90a9059e33485b1560c4aceb56cfc",
+    "git_blob_sha": "5b10e998686498f2eec67407b45f4e99ef5b5928",
+    "entries": 224
+  }
+}
