@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "version": "Improved Records 1 UI2 + NL Movement",
+  "baseline_commit": "150b3ebc0d132ea88f3baecb9d6f5f722be68f3c",
+  "scope": "native UI layout only",
+  "gameplay_sources_identical": true,
+  "removed_service_labels": 8,
+  "remaining_widgets": 8,
+  "native_slider_width_checks": 688,
+  "native_dpi_resize_layout_executed": true,
+  "files": {
+    "skeet.dll": {
+      "bytes": 16552448,
+      "sha256": "a770255cf542734beca5c2719135e8e2e7aaeee6cd2e90faea560043ec0599e6"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "a654b58baceb19aaccab48c7b2aae2a06f1d6d1a6da75419df4ff51b9f59b12a"
+    }
+  },
+  "reports": [
+    "source.json",
+    "improved_native.json",
+    "improved_frame.json",
+    "ui2_source_preservation.json",
+    "ui2_old_width_reproduction.json",
+    "windows_build_validation.json"
+  ],
+  "new_ui_game_tested": false,
+  "user_reported_previous_tracking_good": true,
+  "archive": {
+    "path": "/workspace/output/Skeet_Improved_Records1_UI2_Combined_x86.zip",
+    "bytes": 8628769,
+    "sha256": "22c476e463fb9fd3662e4d10287df6f224e65ab404c42a0db4004ac5a71fe88d",
+    "git_blob_sha": "957c0aac6619039684eba5c48272cf83947925ba",
+    "entries": 190
+  }
+}
