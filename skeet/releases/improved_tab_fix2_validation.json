@@ -1,0 +1,10 @@
+{
+  "path": "/workspace/output/Skeet_Improved_Tab_Fix2_Windows_x86.zip",
+  "bytes": 8499974,
+  "sha256": "e0faf5101682f9ee7c3eb5912ca04ed788bba02c77b10804f859c19187d9f849",
+  "git_blob_sha": "e2a15b73ffb60a64f9043c854a687f5691d63b94",
+  "manifest_files": 106,
+  "build": "Improved UI fix 2 / 2026-11-23",
+  "compiled": true,
+  "game_tested": false
+}
