@@ -1,0 +1,11 @@
+{
+  "path": "/workspace/output/Skeet_Improved_Fix3_NL_Movement_Combined_x86.zip",
+  "bytes": 8547236,
+  "sha256": "9b83f2d7914896139e18696b00eac1e439e041fe0432f1b01cdaac145be6db5c",
+  "git_blob_sha": "651dc0c60d8eaccdc80e73e2cd6d0f9075412b0f",
+  "manifest_files": 128,
+  "build": "Improved Fix3 + NL Movement 1",
+  "full_neverlose_movement_1to1": false,
+  "compiled": true,
+  "game_tested": false
+}
