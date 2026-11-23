@@ -1,0 +1,43 @@
+{
+  "artifact": "/workspace/output/Skeet_NL_Normal_WASD_Windows_x86.zip",
+  "bytes": 8478901,
+  "sha256": "dc51f387db4aee99eedc26c428b165a7ae1ba27ce02d030d608a54352d882d8f",
+  "git_blob_sha": "0f4ed2151e6e9089cc9099598acd92f5935841be",
+  "manifest_files": 96,
+  "compiled": true,
+  "full_movement_1to1": false,
+  "game_tested": false,
+  "windows_validation": {
+    "passed": true,
+    "machine": "Windows x86 (0x14c)",
+    "files": {
+      "skeet.dll": {
+        "bytes": 16487936,
+        "sha256": "0ac1d169435e2bc94dcfef9d7e2f3dc9f621dd5c5120d0ca7503a68af85cb954"
+      },
+      "injector.exe": {
+        "bytes": 360448,
+        "sha256": "db75def71bda6aaf00abf91298a5f23370109c717fb9a085692f4bbccb6f7420"
+      }
+    },
+    "exports": {
+      "nl_movement_api_version": "0x1ecf80",
+      "nl_movement_calculate": "0x1ecfb0",
+      "nl_movement_input_size": "0x1ecf90",
+      "nl_movement_output_size": "0x1ecfa0",
+      "skeet_loader_status": "0x484798"
+    },
+    "original_core_embedded": true,
+    "cdecl_export_queries_passed": 3,
+    "compiled_dll_calculate_cases": 300,
+    "yaw_float32_equal_to_portable_cases": 300,
+    "max_yaw_serialization_error": 4.921875529362296e-08,
+    "controlled_math_import_calls": 565,
+    "boundary": "Only atan2 uses controlled host-libm return; DLL entry and Windows APIs not executed.",
+    "injector_executed": false,
+    "dll_entry_executed": false,
+    "game_tested": false,
+    "full_neverlose_movement_1to1": false
+  },
+  "download_path": "skeet/releases/Skeet_NL_Normal_WASD_Windows_x86.zip"
+}
