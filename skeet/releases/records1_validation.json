@@ -1,0 +1,58 @@
+{
+  "version": "Improved Records 1 + NL Movement",
+  "date": "2026-11-24",
+  "passed": true,
+  "default_new_features": "off",
+  "features": [
+    "native-window narrowing",
+    "record count limiting",
+    "single prepared pose across selection/application",
+    "1-2 tick collision-checked positional extrapolation"
+  ],
+  "records_cases": {
+    "coherent": 108,
+    "native_rotation_reference": 6,
+    "native_disabled": 3,
+    "bounds": 8,
+    "forecast": 6,
+    "rejections": 19,
+    "selector": 9,
+    "snapshots": 1
+  },
+  "cpu_state_cases": 32,
+  "native_control_policy_cases": 17,
+  "windows_files": {
+    "skeet.dll": {
+      "bytes": 16553984,
+      "sha256": "058aa54dfffd3600c7898d9b6307518ee4ca7439fc8252d21a4414d4b9d5e530"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "73be32ddb0af130ada15b15cfcab78f51c16f205f455b759514b1534919f3a40"
+    }
+  },
+  "verified_reports": [
+    "source.json",
+    "records_native.json",
+    "record_bridges.json",
+    "record_world.json",
+    "improved_native.json",
+    "improved_frame.json",
+    "improved_layout.json",
+    "movement_v2_windows.json",
+    "movement_v2_core.json",
+    "windows_build_validation.json",
+    "combined_adapter.json",
+    "records_source_merge.json"
+  ],
+  "historical_reports": "baseline_combined/ documents the previous release only",
+  "game_tested": false,
+  "full_neverlose_movement_1to1": false,
+  "archive": {
+    "path": "/workspace/output/Skeet_Improved_Records1_Combined_x86.zip",
+    "bytes": 8615522,
+    "sha256": "717733bf2050c318e84eb3a00207fa1123487cd3da4831344f3ae211f6b3d1d2",
+    "git_blob_sha": "b1c619b3f1288b6f8f3ceed50f76c9bee2bae5ee",
+    "entries": 176
+  }
+}
