@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "version": "Improved Hitscan 2 + NL Movement",
+  "baseline": "dc3173bbd01805057ca1778751139f4ea7c2e369",
+  "fix": "reserve the native slider 10px extended hit region; checkbox square toggles without changing Units",
+  "numeric_total_budget": true,
+  "fake_8_9_sentinel_modes_removed": true,
+  "markers": "GS/NL labels at last measured candidate counts, not fixed global cheat values",
+  "reference": "GS baseline; GS union with adapted generic NL capsule pattern",
+  "native_candidate_prefix_preserved": true,
+  "native_point_capacity": 112,
+  "full_native_buffer_handled": true,
+  "default": "OFF; numeric budget64",
+  "ui_slider_minimum": "measured GS count; no original candidate removal",
+  "records_and_movement_unchanged": true,
+  "full_neverlose_hitscan": false,
+  "native_square_clicks": 84,
+  "native_point_dispatches": 1688,
+  "files": {
+    "skeet.dll": {
+      "bytes": 16571392,
+      "sha256": "388d5cdc43179d8cc3a00ce100d50f38d59d03cfa3f3ba8aabf5e73710106148"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "8ca188c3bd7419a7c0c75c88fce279c8642a03c9d9d5b278561615ec179b3b97"
+    }
+  },
+  "verified_reports": [
+    "hitscan_input.json",
+    "hitscan_points.json",
+    "hitscan_native.json",
+    "improved_native.json",
+    "improved_frame.json",
+    "improved_layout.json",
+    "source.json",
+    "hitscan_source_merge.json",
+    "windows_build_validation.json",
+    "movement_v2_windows.json",
+    "hitscan_value_text.json"
+  ],
+  "unchanged_nl_pattern_math_reference_report": "hitscan_nl_pattern.json (335 cases from Hitscan1; pattern math unchanged)",
+  "game_tested": false,
+  "fps_and_hitrate_measured": false
+}
