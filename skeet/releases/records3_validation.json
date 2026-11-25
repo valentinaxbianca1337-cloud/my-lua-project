@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "version": "Improved Records 3 + NL Movement",
+  "custom_hitscan_removed": true,
+  "original_native_scanner_retained": true,
+  "world_fix": "simulation time DPT_Int with float proxy storage; DPT_Float fallback retained",
+  "confirmed_old_probe_rejects_integer_type": true,
+  "new_probe_integer_and_float_pass": true,
+  "invalid_types_rejected": true,
+  "unchanged_gameplay_files_from_hitscan2": [
+    "source/skeet/record_options.h",
+    "source/skeet/record_session.h",
+    "source/skeet/record_controls.h",
+    "source/skeet/record_blend_sites.h",
+    "source/skeet/record_layout.h",
+    "source/skeet/record_runtime.h",
+    "source/skeet/record_hooks.h",
+    "source/skeet/nl_movement.cpp",
+    "source/skeet/nl_movement.h",
+    "lua/nl_movement_combined.lua",
+    "source/skeet/Binary/skeet.bin"
+  ],
+  "native_window_not_extended": true,
+  "source_reference": "https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/client/c_baseentity.cpp",
+  "game_tested": false,
+  "hit_rate_and_fps_improvements_measured": false,
+  "files": {
+    "skeet.dll": {
+      "bytes": 16552448,
+      "sha256": "4a47182d209afe831750b5441ba24ed036fe4922150c2f8efeb6fa043dc28a61"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "fdaefbf01aae8075479bc803f65ebea02e0ed966ef7a7a191989198ddcc76473"
+    }
+  }
+}

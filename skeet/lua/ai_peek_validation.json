@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "scenario_cases": 33,
+  "runtime": "LuaJIT2.1",
+  "max_queries_per_planning_step": {
+    "line": 6,
+    "bullet": 2
+  },
+  "planning_interval_ms": 50,
+  "callback_budget_ms_best_effort": 0.7,
+  "movement_only": true,
+  "mock_engine_only": true,
+  "game_tested": false,
+  "historical_matrices_validated": false,
+  "fps_measured": false
+}
