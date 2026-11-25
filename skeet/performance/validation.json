@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "lua_cases": 18,
+  "native_gameplay_writes": false,
+  "zero_timer_resolution_cost_is_json_safe": true,
+  "lua_runtime": "LuaJIT 2.1",
+  "mock_api_only": true,
+  "game_executed": false,
+  "windows_wpr_executed": false
+}
