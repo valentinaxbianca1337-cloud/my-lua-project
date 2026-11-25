@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "version": "Aim Recovery 4",
+  "approach": "restore original firing/record path; quarantine Lua aim/tickbase/movement patches",
+  "record_and_hitscan_runtime_installers_reachable": false,
+  "custom_record_controls_disabled_by_design": true,
+  "original_core_bytes_unchanged": true,
+  "confirmed_old_callback_ownership_defect": "legacy native success can be rejected for a different actor sharing context; controlled boundary reproduction",
+  "old_defect_proven_cause_of_user_misses": false,
+  "afterglow_quarantined_modules": 22,
+  "afterglow_controlled_method_calls": 396,
+  "reason_labels_unchanged": true,
+  "hitchance_damage_not_reset_to_new_values": true,
+  "files": {
+    "skeet.dll": {
+      "bytes": 16536064,
+      "sha256": "91c04ce1c4d8de258a84fdec3437d9b93859fed60807f27d9acf1c7d5298f0b4"
+    },
+    "injector.exe": {
+      "bytes": 362496,
+      "sha256": "7bdc5a532d00b09036ecf47672307322f4ca862087c83544df058bd52d4a74f7"
+    }
+  },
+  "game_tested": false,
+  "hitrate_or_fps_improvement_measured": false
+}
