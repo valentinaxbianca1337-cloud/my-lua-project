@@ -1,0 +1,648 @@
+--- a/README_RU.txt
++++ b/README_RU.txt
+@@ -1,51 +1,73 @@
+-Aim Recovery 4 — 25.11.2026
++Record Command Guard 5 — нативная правка GameSense
+ 
+-Восстановлен исходный путь обработки записей/поз и генерации точек Skeet.
+-Наш record installer полностью убран из production include/call graph:
+-пять перехватов выбора/getter/apply не устанавливаются, промежуточные полные
+-poses и сдвиги матриц Extrapolation не подставляются в процесс стрельбы.
+-Custom Hitscan уже отсутствует. Исходный embedded core сохранён побайтово.
++В архиве: skeet.dll, соответствующий injector.exe, исходники проекта,
++проверки и отчёты. Lua для этой правки не требуется.
+ 
+-Это откат экспериментальных изменений, не перенос другого resolver. В native
+-меню Improved собственные флажки Backtrack/Consistent pose/Limit records/
+-Extrapolation серые намеренно: runtime отсутствует. Штатные возможности и
+-backtrack самого GameSense остаются внутри оригинального ядра. Нет увеличения
+-окна сервера, отключения hitchance/урона либо подмены причины промаха.
++Что изменено
+ 
+-Аудит старой версии
+-В Records3 воспроизведён дефект признака ownership: при совпадении context,
+-но другой цели, apply callback мог выбрать legacy-ветку, а wrapper затем
+-отклонял даже заданный успешный native result по состоянию предыдущей сессии.
+-Это воспроизведение на контролируемой границе native result, не доказательство
+-того, что именно так произошёл конкретный пользовательский промах.
+-В Recovery соответствующий installer/обёртка вообще не включены в production.
+-Экспериментальный исходник сохранён только для аудита/отдельных старых fixtures.
++Перед добавлением автовыстрела проверяется та же формула исторического тика,
++которую оригинальный код использует позднее для command.tick_count:
++выбранный тик + округлённая интерполяция, с исходным ограничением команды.
++Если положительный исторический тик не проходит это ограничение, новая
++ветка не добавляет автовыстрел по несогласованной записи. Оригинальная
++поздняя финализация в таком случае оставляет прежний command tick.
+ 
+-Кроме того, Consistent pose раньше совмещался с построением промежуточной
+-полной позы, а Extrapolation — с переносом уже существующих матриц. Проверки
+-на стенде показывали математическую согласованность, не точность серверной
+-анимации. Эти допущения в данной восстановительной версии не применяются.
++Защита не заменяет матрицы, не экстраполирует противника, не расширяет
++серверное окно бектрека, не меняет spread/hitchance/резольвер. Уже имеющиеся
++биты ручного IN_ATTACK/IN_ATTACK2 не снимаются. Варианты без положительного
++исторического тика сохраняют прежний путь. Дополнительная проверка запускается
++один раз перед потенциальным автовыстрелом; трассировок мира в ней нет.
+ 
+-Lua
+-Вместе приложена afterglow_aim_recovery.lua. В ней заблокированы старые
+-нативные aim/record/DT/movement фиксы и изменения tickbase/packet policy.
+-Обычный builder, оформление и логгер сохранены в исходнике; подробный список
+-отключённых возможностей и предел тестирования — AFTERGLOW_RECOVERY_README.txt.
+-Отдельный NL movement adapter и AI Peek в первом сравнении не загружать.
+-Чистые movement exports внутри DLL сами по себе в команды не вмешиваются.
++Это конкретная защита согласованности команды, а не доказанное устранение
++всех промахов correction или prediction error. Срабатывание найденной
++ветки на пользовательском сервере ещё не подтверждено. Игровой хитрейт
++и FPS здесь не измерялись: CS:GO и процесс пользователя недоступны.
+ 
+-Установка
+-Сначала снять автозагрузку старых Lua, затем полностью закрыть игру; использовать skeet.dll и injector.exe только из этого
+-комплекта. Первый короткий запуск без Lua, затем только новая recovery-Lua
+-вместо старой. Старые изменения могут оставаться в памяти до перезапуска.
+-Старые релизы в GitHub сохранены для отката; конфиги на новые HC/damage числа
+-автоматически не переписываются.
++Запуск
++
++1. Полностью закрыть прежнюю CS:GO: замена DLL на диске не убирает старые
++   хуки из уже запущенного процесса.
++2. Распаковать архив целиком, оставив injector.exe рядом со skeet.dll.
++3. Запустить legacy CS:GO x86 и injector.exe. Сборка не предназначена для CS2.
++4. Версия в окне загрузчика: Record Command Guard 5.
++Защита включается внутри DLL; кнопка в Lua ей не нужна.
++
++Основа — Aim Recovery 4. Старые экспериментальные Consistent pose,
++Extrapolation и Hitscan по-прежнему не устанавливаются. Их отключённые
++контролы во вкладке Improved не означают, что новая защита не работает.
++Математика movement и его прежний способ подключения не изменялись.
++
++Диагностика
++
++DLL экспортирует skeet_record_guard_status (5 полей по 32 бита):
++version=1, size=20, installed, considered, rejected.
++installed становится 1 после установки; considered считает потенциальные
++автовыстрелы, rejected — отказы новой проверки. Это счётчики, не хитрейт.
++Если сигнатуры исходного участка изменены, загрузчик отказывает в запуске
++этой сборки вместо записи патча по неподходящему адресу.
+ 
+ Проверки
+-Оригинальный resource SHA256 и шесть native sites проверены. Production include
+- graph не достигает record/hitscan runtime installer. UI resize/DPI/иконки,
+-структура Windows x86/ресурс и pure movement exports проверены в fixtures.
+-Lua компилируется; слой запрета модулей отдельно проверен LuaJIT 2.1.
+-DLL entry, injector, сама игра, новый FPS/hit rate и все ветки полного Afterglow
+-в этой среде не выполнялись. Наличие correction/unknown и prediction error
+-в старом логе не позволяет обещать их полное исчезновение в новой сборке.
++
++- 1216 проверок состояния процессора и переходов emitted x86-кода.
++- 1152 сравнения с исполнением исходной финализации тика (64/128 tickrate).
++- 18 случаев установки/ошибок/отката с контролируемыми WinAPI.
++- Отдельные отрицательные проверки неизвестных байтов и некорректных входов.
++- Сборка Windows x86; исходный embedded core сохранён без изменения ресурса.
++- Повторные проверки существующих movement-экспортов: 300 + 18 случаев.
++Это изолированные проверки, не запуск DLL entry/injector в игре.
++
++Сборка исходников
++
++Python + requirements-build.txt; для проверок — requirements-test.txt и g++.
++  python build_windows.py
++  python build_guard_tests.py
++  python tests/validate_shot_guard.py
++  python tests/validate_shot_guard_install.py
++  python verify_source.py
++  python tests/verify_recovery_boundary.py
++
++Исходники включают загрузчик/обёртку и исходный бинарный core известной
++версии; они не являются полностью восстановленным C++-кодом GameSense.
++Основная правка: source/skeet/shot_guard_plan.h и shot_guard_runtime.h;
++подключение после VM fixups в source/skeet/skeet.cpp.
++Для отката доступен прежний архив Aim Recovery 4 в том же репозитории.
+--- /dev/null
++++ b/build_guard_tests.py
+@@ -0,0 +1,12 @@
++"""Build the Windows x86 guard installer fixture, not a running-game test."""
++from pathlib import Path
++import os, subprocess, sys
++r=Path(__file__).resolve().parent
++(r/'build').mkdir(exist_ok=True)
++env=os.environ.copy();env.setdefault('ZIG_GLOBAL_CACHE_DIR',str(r/'.cache/global'))
++subprocess.run([sys.executable,'-m','ziglang','c++','-target','x86-windows-gnu',
++    '-std=c++23','-O2','-shared','-fms-extensions','-fasm-blocks','-ffp-contract=off',
++    '-I',str(r/'source/compat'),'-I',str(r/'source/skeet'),
++    str(r/'tests/shot_guard_install_probe.cpp'),'-o',str(r/'build/shot_guard_install_probe.dll')],
++    env=env,check=True)
++print('Run tests/validate_shot_guard.py, then tests/validate_shot_guard_install.py.')
+--- a/source/improved_protocol.h
++++ b/source/improved_protocol.h
+@@ -1,7 +1,7 @@
+ #pragma once
+ #include <windows.h>
+ 
+-inline constexpr char kImprovedBuild[] = "Aim Recovery 4";
++inline constexpr char kImprovedBuild[] = "Record Command Guard 5";
+ enum ImprovedStage : LONG {
+     ImprovedWaiting=0, ImprovedHookInstalled=1, ImprovedMenuRejected=2,
+     ImprovedMenuClosed=3, ImprovedCreating=4, ImprovedActive=5,
+--- a/source/skeet/dllmain.cpp
++++ b/source/skeet/dllmain.cpp
+@@ -7,7 +7,7 @@
+ __declspec(dllexport) LoaderStatus skeet_loader_status = {1, LoaderWaiting, 0, "Waiting for game modules"};
+ __declspec(dllexport) ImprovedStatus skeet_improved_status = {
+     1, ImprovedWaiting, 0, 0, 0, 0, 0xffffffffU,
+-    "Aim Recovery 4", "Waiting for the native render hook"
++    "Record Command Guard 5", "Waiting for the native render hook"
+ };
+ }
+ 
+--- /dev/null
++++ b/source/skeet/shot_guard_plan.h
+@@ -0,0 +1,86 @@
++#pragma once
++#include "core_image.h"
++#include <cstring>
++#include <initializer_list>
++
++// One narrowly scoped invariant: do not add an automatic attack for a positive
++// historical tick if the existing command finalizer would refuse that tick.
++// This does not resolve enemy angles or replace any bone/record calculation.
++namespace shot_guard {
++inline constexpr unsigned site=0x43355de9, resume=0x43355def, skip=0x43356146;
++struct Plan {unsigned char code[1024]{};unsigned used=0;unsigned char patch[6]{};};
++inline void word(unsigned char* p,unsigned v){std::memcpy(p,&v,4);}
++struct Emit {
++    unsigned char* p;unsigned address,pos=0;
++    void bytes(std::initializer_list<unsigned char> v){for(auto x:v)p[pos++]=x;}
++    void value(unsigned x){word(p+pos,x);pos+=4;}
++    void jump(unsigned target){bytes({0xe9});value(target-(address+pos+4));}
++    void call(unsigned target){bytes({0xe8});value(target-(address+pos+4));}
++    unsigned branch(unsigned op){bytes({0x0f,static_cast<unsigned char>(op)});auto at=pos;value(0);return at;}
++    void fix(unsigned at,unsigned target){word(p+at,target-(address+at+4));}
++    void save(){
++        bytes({0x9c,0x60,0x81,0xec,0x20,2,0,0,0x8d,0x44,0x24,0x0f,0x83,0xe0,0xf0,
++            0x0f,0xae,0,0x89,0x84,0x24,0x10,2,0,0});
++    }
++    void restore(){bytes({0x8b,0x84,0x24,0x10,2,0,0,0x0f,0xae,8,
++        0x81,0xc4,0x20,2,0,0,0x61,0x9d});}
++    void increment(unsigned address){bytes({0xf0,0xff,0x05});value(address);}
++};
++inline bool profile(const unsigned char* image,std::size_t size) {
++    if(!image||size!=core_image::image_size)return false;
++    struct Region {unsigned address,length;std::uint64_t hash;};
++    constexpr Region regions[]={
++        {0x43355de3,0x24,0x4192daa4db30fe62ULL}, // test DL; JZ; original attack-bit construction
++        {0x433560cd,0x56,0xfc2492839a807540ULL}, // unchanged final command-tick assignment
++        {0x4332fc35,0x5f,0xd95afa69ee8f06a3ULL}, // original scalar max helper
++        {0x4334fb71,0x2d,0x0ed27a840ff0a423ULL} // initialization of the rounding spill
++    };
++    for(auto r:regions){
++        std::uint64_t hash=0xcbf29ce484222325ULL;
++        for(unsigned i=0;i<r.length;i++)hash=(hash^image[r.address-core_image::image_base+i])*0x100000001b3ULL;
++        if(hash!=r.hash)return false;
++    }
++    return true;
++}
++inline bool make_plan(const unsigned char* image,std::size_t size,unsigned address,
++                      unsigned considered,unsigned rejected,Plan& out) {
++    if(!profile(image,size)||!address||!considered||!rejected||
++       (considered&3)||(rejected&3)||considered==rejected)return false;
++    out=Plan{};Emit e{out.code,address};
++    // Preserve the native no-shot branch exactly, before touching any state.
++    auto no_shot=e.branch(0x84);e.fix(no_shot,skip);
++    e.save();e.increment(considered);
++    // ESP is now original ESP - 0x244. Candidate lives at original [ESP+18].
++    e.bytes({0x8b,0x9c,0x24,0x5c,2,0,0,0x8b,0x9b,0xb4,0,0,0,0x85,0xdb});
++    const auto current_pose=e.branch(0x8e); // selected_tick <= 0: retain native behavior
++    // Validate finite inputs without executing arithmetic on NaNs/zero dt.
++    e.bytes({0x8b,0x35});e.value(0x4346a338);e.bytes({0x8b,6,0x85,0xc0});
++    const auto bad_interval=e.branch(0x8e);
++    e.bytes({0x25,0,0,0x80,0x7f,0x3d,0,0,0x80,0x7f});
++    const auto infinite_interval=e.branch(0x83);
++    e.bytes({0x85,0xc0});const auto subnormal_interval=e.branch(0x84);
++    e.bytes({0x8b,0x87,0x98,1,0,0,0x25,0,0,0x80,0x7f,0x3d,0,0,0x80,0x7f});
++    const auto bad_lerp=e.branch(0x83);
++    e.bytes({0xa1});e.value(0x43469254);
++    e.bytes({0x25,0,0,0x80,0x7f,0x3d,0,0,0x80,0x7f});const auto bad_floor=e.branch(0x83);
++    // Mirror the exact native helper/divide/rounding sequence and operands.
++    e.bytes({0xf3,0x0f,0x10,0x0d});e.value(0x43469254);
++    e.bytes({0xf3,0x0f,0x10,0x87,0x98,1,0,0});e.call(0x4332fc35);
++    e.bytes({0xf3,0x0f,0x5e,6,0xf3,0x0f,0x58,0x84,0x24,0xd4,2,0,0,
++             0xf3,0x0f,0x2c,0xc8,0x85,0xc9});
++    const auto bad_conversion=e.branch(0x88);
++    e.bytes({0x03,0xcb});const auto tick_overflow=e.branch(0x80);
++    e.bytes({0x8b,0x87,0x8c,1,0,0,0x03,0x87,0x44,1,0,0});
++    const auto cap_overflow=e.branch(0x80);
++    e.bytes({0x3b,0xc8});const auto outside_cap=e.branch(0x8f);
++    const auto allowed=address+e.pos;e.fix(current_pose,allowed);
++    e.restore();e.jump(resume);
++    const auto denied=address+e.pos;
++    for(auto at:{bad_interval,infinite_interval,subnormal_interval,bad_lerp,bad_floor,
++                 bad_conversion,tick_overflow,cap_overflow,outside_cap})e.fix(at,denied);
++    e.increment(rejected);e.restore();e.jump(skip);
++    if(e.pos>sizeof(out.code))return false;
++    out.used=e.pos;out.patch[0]=0xe9;word(out.patch+1,address-(site+5));out.patch[5]=0x90;
++    return true;
++}
++}
+--- /dev/null
++++ b/source/skeet/shot_guard_runtime.h
+@@ -0,0 +1,36 @@
++#pragma once
++#include "shot_guard_plan.h"
++#include <Windows.h>
++
++namespace shot_guard {
++// Read-only diagnostics exported by the wrapper. Counters are incremented by
++// emitted LOCK INC instructions once per potential automatic shot, not per ray.
++struct Status {unsigned version,size;volatile LONG installed,considered,rejected;};
++static_assert(sizeof(Status)==20);
++inline bool install(unsigned char* image,std::size_t size,Status& status) {
++    if(reinterpret_cast<std::uintptr_t>(image)!=core_image::image_base||!profile(image,size))return false;
++    auto* code=static_cast<unsigned char*>(VirtualAlloc(nullptr,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
++    if(!code)return false;
++    Plan plan{};
++    if(!make_plan(image,size,reinterpret_cast<unsigned>(code),
++        reinterpret_cast<unsigned>(&status.considered),reinterpret_cast<unsigned>(&status.rejected),plan)) {
++        VirtualFree(code,0,MEM_RELEASE);return false;
++    }
++    std::memcpy(code,plan.code,plan.used);DWORD old=0;
++    if(!VirtualProtect(code,4096,PAGE_EXECUTE_READ,&old)||!FlushInstructionCache(GetCurrentProcess(),code,plan.used)) {
++        VirtualFree(code,0,MEM_RELEASE);return false;
++    }
++    constexpr unsigned char before[]={0x0f,0x84,0x57,3,0,0};
++    auto* target=image+site-core_image::image_base;
++    if(std::memcmp(target,before,sizeof(before))) {VirtualFree(code,0,MEM_RELEASE);return false;}
++    // Initialization precedes the original core entry thread. No active game
++    // thread can enter this new image while the six-byte branch is replaced.
++    std::memcpy(target,plan.patch,sizeof(plan.patch));
++    if(!FlushInstructionCache(GetCurrentProcess(),target,sizeof(plan.patch))) {
++        std::memcpy(target,before,sizeof(before));FlushInstructionCache(GetCurrentProcess(),target,sizeof(before));
++        VirtualFree(code,0,MEM_RELEASE);return false;
++    }
++    InterlockedExchange(&status.installed,1);return true;
++}
++}
++extern "C" __declspec(dllexport) inline shot_guard::Status skeet_record_guard_status={1,sizeof(shot_guard::Status),0,0,0};
+--- a/source/skeet/skeet.cpp
++++ b/source/skeet/skeet.cpp
+@@ -12,6 +12,7 @@
+ #include "resource.h"
+ #include "overlay_loader.h"
+ #include "core_image.h"
++#include "shot_guard_runtime.h"
+ #include "cs2_visuals.h"
+ #include "../loader_protocol.h"
+ #include <intrin.h>
+@@ -711,6 +712,13 @@
+     LPRINT(skCrypt("[INFO] recompiling vm...\n"));
+     recompile();
+     LPRINT(skCrypt("[INFO] recompiled!\n"));
++    // Install after VM fixups and before starting the core entry thread.
++    // Refuse unknown bytes instead of guessing a site in another core build.
++    if (!shot_guard::install(reinterpret_cast<std::uint8_t*>(_base), _size, skeet_record_guard_status)) {
++        _last_error = "Record command guard: unsupported native shot path or allocation/cache failure.";
++        SetLastError(ERROR_REVISION_MISMATCH);
++        return false;
++    }
+     return true;
+ }
+ 
+--- a/source/skeet/skeet.vcxproj
++++ b/source/skeet/skeet.vcxproj
+@@ -186,6 +186,8 @@
+     <ClInclude Include="record_blend_sites.h" />
+     <ClInclude Include="record_hooks.h" />
+     <ClInclude Include="record_runtime.h" />
++    <ClInclude Include="shot_guard_plan.h" />
++    <ClInclude Include="shot_guard_runtime.h" />
+     <ClInclude Include="record_options.h" />
+     <ClInclude Include="record_world.h" />
+     <ClInclude Include="record_controls.h" />
+--- a/source/steam/steam.cpp
++++ b/source/steam/steam.cpp
+@@ -137,7 +137,7 @@
+     return 2;
+ }
+ int wmain() {
+-    SetConsoleTitleW(L"Aim Recovery 4");
++    SetConsoleTitleW(L"Record Command Guard 5");
+     std::puts(kImprovedBuild);
+     wchar_t path[32768]{};
+     const DWORD length = GetModuleFileNameW(nullptr, path, 32768);
+--- /dev/null
++++ b/tests/shot_guard_install_probe.cpp
+@@ -0,0 +1,6 @@
++#include <Windows.h>
++#include "../source/skeet/shot_guard_runtime.h"
++extern "C" __declspec(dllexport) int probe_install(unsigned char* image,unsigned size) {
++    skeet_record_guard_status={1,sizeof(shot_guard::Status),0,0,0};
++    return shot_guard::install(image,size,skeet_record_guard_status);
++}
+--- /dev/null
++++ b/tests/shot_guard_plan.cpp
+@@ -0,0 +1,18 @@
++#include "../source/skeet/shot_guard_plan.h"
++#include <fstream>
++#include <iterator>
++#include <string>
++#include <vector>
++int main(int argc,char** argv) {
++    if(argc!=6)return 1;
++    std::ifstream in(argv[1],std::ios::binary);
++    std::vector<unsigned char> image((std::istreambuf_iterator<char>(in)),{});
++    shot_guard::Plan plan{};
++    if(!shot_guard::make_plan(image.data(),image.size(),std::stoul(argv[3],nullptr,0),
++        std::stoul(argv[4],nullptr,0),std::stoul(argv[5],nullptr,0),plan))return 2;
++    std::ofstream out(argv[2],std::ios::binary);
++    out.write(reinterpret_cast<char*>(plan.code),sizeof(plan.code));
++    out.write(reinterpret_cast<char*>(plan.patch),sizeof(plan.patch));
++    out.write(reinterpret_cast<char*>(&plan.used),sizeof(plan.used));
++    return out?0:3;
++}
+--- /dev/null
++++ b/tests/validate_shot_guard.py
+@@ -0,0 +1,126 @@
++"""Execute emitted x86 guard against original finalizer; no game/DLL entry.
++
++The synthesized invalid inputs test the new invariant, not their frequency or
++reachability in a real match. A resolver/hit-rate improvement is not measured.
++"""
++from pathlib import Path
++import hashlib
++import itertools
++import json
++import random
++import struct
++import subprocess
++
++from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE, UC_HOOK_MEM_WRITE
++from unicorn.x86_const import *
++
++ROOT=Path(__file__).resolve().parents[1]
++IMAGE=(ROOT/'source/skeet/Binary/skeet.bin').read_bytes()
++BASE, MEM=0x43310000, 0x200000
++CONTEXT,CANDIDATE,COMMAND,INTERVAL,COUNTERS,SP=(MEM+x for x in (0x1000,0x2000,0x3000,0x4000,0x5000,0x9000))
++SITE,RESUME,SKIP=0x43355de9,0x43355def,0x43356146
++FINAL,FINAL_END=0x433560cd,0x43356123
++GPRS=[UC_X86_REG_EAX,UC_X86_REG_EBX,UC_X86_REG_ECX,UC_X86_REG_EDX,UC_X86_REG_ESI,UC_X86_REG_EDI,UC_X86_REG_EBP]
++STATE=GPRS+[UC_X86_REG_XMM0+i for i in range(8)]+[UC_X86_REG_MXCSR,UC_X86_REG_EFLAGS,UC_X86_REG_FPCW,UC_X86_REG_FPSW,UC_X86_REG_FPTAG,UC_X86_REG_ST0,UC_X86_REG_ST1]
++
++def bits(x):return struct.unpack('<I',struct.pack('<f',x))[0]
++def f32(x):return struct.unpack('<f',struct.pack('<f',x))[0]
++def store(u,a,v):u.mem_write(a,struct.pack('<I',v&0xffffffff))
++def word(u,a):return struct.unpack('<I',u.mem_read(a,4))[0]
++
++def fixture(location, plan, alignment, rate, lerp, tick, cap, attack=0, auto=1, mxcsr=0x1f80):
++    u=Uc(UC_ARCH_X86,UC_MODE_32)
++    u.mem_map(BASE,len(IMAGE));u.mem_write(BASE,IMAGE)
++    u.mem_map(MEM,0x10000);u.mem_map(location,4096);u.mem_write(location,plan[:1024]);u.mem_write(SITE,plan[1024:1030])
++    stack=SP+alignment
++    store(u,0x4346a338,INTERVAL);store(u,INTERVAL,bits(1/rate))
++    store(u,CONTEXT+0x198,bits(lerp));store(u,CONTEXT+0x18c,cap);store(u,CONTEXT+0x144,0)
++    store(u,CANDIDATE+0xb4,tick);store(u,stack+0x18,CANDIDATE);store(u,stack+0x28,COMMAND);store(u,stack+0x90,bits(.5))
++    store(u,COMMAND+8,777);store(u,COMMAND+0x30,attack)
++    # Initialize a nonempty x87 stack; guard must leave it exactly intact.
++    u.mem_write(MEM+0x100,b'\xdb\xe3\xd9\xe8\xd9\xeb');u.emu_start(MEM+0x100,MEM+0x106,count=3)
++    for i,r in enumerate(GPRS):u.reg_write(r,0x11223300+i)
++    for i in range(8):u.reg_write(UC_X86_REG_XMM0+i,0x123456789abcdef00123456789abcdef+i)
++    u.reg_write(UC_X86_REG_EDI,CONTEXT);u.reg_write(UC_X86_REG_EDX,0x11223300|auto)
++    u.reg_write(UC_X86_REG_ESP,stack);u.reg_write(UC_X86_REG_MXCSR,mxcsr)
++    # Generate the real native TEST DL,DL flags at the actual predecessor.
++    u.emu_start(0x43355de7,SITE,count=1)
++    return u,stack
++
++def execute(u,stack,expect,attack):
++    state={r:u.reg_read(r)for r in STATE};game_before=bytes(u.mem_read(MEM,0x6000));writes=[];ended=[];trace=[]
++    def stop(u,a,size,user):
++        # Unicorn reports a non-wrapped callback PC for some rel32 Jcc
++        # transitions from >=0x80000000, although the x86 EIP is 32 bits.
++        a&=0xffffffff
++        if len(trace)<8:trace.append((hex(a),hex(u.reg_read(UC_X86_REG_EFLAGS))))
++        if a in (RESUME,SKIP):ended.append(a);u.emu_stop()
++    def wrote(u,access,a,size,value,user):writes.append((a,size))
++    h=u.hook_add(UC_HOOK_CODE,stop);w=u.hook_add(UC_HOOK_MEM_WRITE,wrote)
++    try:u.emu_start(SITE,0,count=20000)
++    except Exception as exc:raise RuntimeError((hex(u.reg_read(UC_X86_REG_EIP)),hex(stack),hex(expect),ended,trace,hex(state[UC_X86_REG_EFLAGS]))) from exc
++    finally:u.hook_del(h);u.hook_del(w)
++    assert ended==[expect],(ended,hex(expect))
++    assert u.reg_read(UC_X86_REG_ESP)==stack
++    for r,v in state.items():assert u.reg_read(r)==v,('state',r,hex(u.reg_read(r)),hex(v))
++    for a,n in writes:
++        assert stack-0x300<=a and a+n<=stack or COUNTERS<=a and a+n<=COUNTERS+8,('unexpected write',hex(a),n)
++    after=bytearray(u.mem_read(MEM,0x6000));before=bytearray(game_before)
++    after[COUNTERS-MEM:COUNTERS-MEM+8]=before[COUNTERS-MEM:COUNTERS-MEM+8]
++    assert after==before,'guard mutated candidate/context/command/native inputs'
++    assert word(u,COMMAND+0x30)==attack,'manual attack was changed'
++    return word(u,COUNTERS),word(u,COUNTERS+4)
++
++def main():
++    assert hashlib.sha256(IMAGE).hexdigest()=='bbb5ee98d00db63dfc5c454b238d5edd3f809976686be226dbc5f6ae55018b07'
++    subprocess.run(['g++','-std=c++17','-O2',str(ROOT/'tests/shot_guard_plan.cpp'),'-o',str(ROOT/'build/shot_guard_plan')],check=True)
++    abi=agree=negative=invalid=no_shot=0
++    examples=[]
++    for location in (0x50000000,0xf0000000):
++        out=ROOT/'build'/f'shot_guard_{location:x}.bin'
++        args=[str(ROOT/'build/shot_guard_plan'),str(ROOT/'source/skeet/Binary/skeet.bin'),str(out),hex(location),hex(COUNTERS),hex(COUNTERS+4)]
++        subprocess.run(args,check=True);plan=out.read_bytes();used=struct.unpack_from('<I',plan,1030)[0]
++        assert used<1024 and plan[1024]==0xe9 and plan[1029]==0x90
++        cases=itertools.product((0,4,8,12),(64,128),(0,1/128,1/64,1.5/64,2/64,.1),(0,90,98,99,100,101),(100,102))
++        for alignment,rate,lerp,tick,cap in cases:
++            extra=int(f32(f32(max(f32(lerp),1/64)/f32(1/rate))+.5))
++            denied=tick>0 and tick+extra>cap
++            attack=0x801 if alignment==12 else 0
++            u,stack=fixture(location,plan,alignment,rate,lerp,tick,cap,attack)
++            assert execute(u,stack,SKIP if denied else RESUME,attack)==(1,int(denied));abi+=1
++            # Independent execution of the original late finalizer on same inputs.
++            u.reg_write(UC_X86_REG_ESI,CANDIDATE);u.emu_start(FINAL,FINAL_END,count=20000)
++            assert u.reg_read(UC_X86_REG_EIP)==FINAL_END
++            assigned=word(u,COMMAND+8)!=777
++            assert denied==(tick>0 and not assigned)
++            if assigned:assert word(u,COMMAND+8)==tick+extra
++            agree+=1
++            if denied and len(examples)<3:examples.append({'rate':rate,'record_tick':tick,'cap':cap,'late_command_tick':word(u,COMMAND+8),'early_guard':'skips adding automatic attack'})
++        for alignment,mxcsr in itertools.product((0,4,8,12),(0x1f80,0x3f80,0x5f80,0x7f80)):
++            for tick,cap in ((90,100),(100,100)):
++                u,stack=fixture(location,plan,alignment,64,1/64,tick,cap,mxcsr=mxcsr)
++                execute(u,stack,RESUME if tick==90 else SKIP,0);abi+=1
++        for alignment in (0,4,8,12):
++            u,stack=fixture(location,plan,alignment,64,0,101,100,attack=0x801,auto=0)
++            assert execute(u,stack,SKIP,0x801)==(0,0);no_shot+=1
++        for field,badbits in itertools.product(('interval','lerp','floor'),(0x7fc00000,0x7f800000,0xff800000)):
++            u,stack=fixture(location,plan,0,64,.01,99,100)
++            store(u,{'interval':INTERVAL,'lerp':CONTEXT+0x198,'floor':0x43469254}[field],badbits)
++            assert execute(u,stack,SKIP,0)==(1,1);invalid+=1
++        for badbits in (0,0x80000000,0xbf800000,1):
++            u,stack=fixture(location,plan,0,64,.01,99,100);store(u,INTERVAL,badbits)
++            assert execute(u,stack,SKIP,0)==(1,1);invalid+=1
++        # Unknown bytes/profile and malformed counter addresses must never emit a patch.
++        for address in (0x43355de7,0x43355de9,0x433560cd,0x4332fc35,0x4334fb71):
++            changed=bytearray(IMAGE);changed[address-BASE]^=1;p=ROOT/'build/shot_guard_changed.bin';p.write_bytes(changed)
++            badargs=args[:];badargs[1]=str(p);assert subprocess.run(badargs).returncode==2;negative+=1
++        for counters in ((0,COUNTERS+4),(COUNTERS+1,COUNTERS+4),(COUNTERS,COUNTERS)):
++            badargs=args[:-2]+list(map(hex,counters));assert subprocess.run(badargs).returncode==2;negative+=1
++    report={'passed':True,'state_and_abi_cases':abi,'original_finalizer_comparisons':agree,
++            'no_shot_bypasses':no_shot,'invalid_input_rejections':invalid,'profile_negative_cases':negative,
++            'checks':['original native tick math','stack/GPR/EFLAGS/XMM/MXCSR/x87 preservation','manual attack unchanged','candidate/context/command unchanged','32-bit high-address relocation','unknown profile rejected'],
++            'examples':examples,'game_executed':False,'hitrate_improvement_measured':False,
++            'scope':'prevents adding automatic attack when positive historical command tick fails final cap; no resolver replacement'}
++    (ROOT/'reports/shot_guard.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
++
++if __name__=='__main__':main()
+--- /dev/null
++++ b/tests/validate_shot_guard_install.py
+@@ -0,0 +1,91 @@
++"""Execute the Windows x86 installer with deterministic WinAPI boundaries.
++No DLL entry, injector, core entry thread, or live game is executed.
++"""
++from pathlib import Path
++import json
++import struct
++import pefile
++from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
++from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
++
++ROOT=Path(__file__).resolve().parents[1]
++CORE=(ROOT/'source/skeet/Binary/skeet.bin').read_bytes()
++BASE,STUB,MEM,API,STOP=0x43310000,0x50000000,0x200000,0x70000000,0x71000000
++SITE=0x43355de9
++
++def main():
++    cases=[]
++    for dllbase in (0x10000000,0x12000000):
++        for case in ('success','unknown_site','wrong_base','wrong_size','alloc_fail','protect_fail',
++                     'code_flush_fail','patch_flush_fail','concurrent_branch_change'):
++            pe=pefile.PE(str(ROOT/'build/shot_guard_install_probe.dll'));pe.relocate_image(dllbase)
++            symbols={s.name.decode():dllbase+s.address for s in pe.DIRECTORY_ENTRY_EXPORT.symbols if s.name}
++            u=Uc(UC_ARCH_X86,UC_MODE_32)
++            u.mem_map(dllbase,(pe.OPTIONAL_HEADER.SizeOfImage+4095)&~4095);u.mem_write(dllbase,pe.get_memory_mapped_image())
++            for a,n in ((BASE,len(CORE)),(STUB,4096),(MEM,0x10000),(API,0x10000),(STOP,4096)):u.mem_map(a,n)
++            u.mem_write(BASE,CORE)
++            if case=='unknown_site':u.mem_write(SITE,b'\xcc')
++            original=bytes(u.mem_read(SITE,6));apis={};calls=[];flushes=[];freed=[]
++            for lib in pe.DIRECTORY_ENTRY_IMPORT:
++                for item in lib.imports:
++                    name=item.name.decode() if item.name else str(item.ordinal)
++                    a=API+16*len(apis);apis[a]=name;u.mem_write(item.address,struct.pack('<I',a))
++            def word(a):return struct.unpack('<I',u.mem_read(a,4))[0]
++            def api(u,a,size,user):
++                name=apis[a];sp=u.reg_read(UC_X86_REG_ESP);ret=word(sp);calls.append(name)
++                if name=='VirtualAlloc':
++                    count,result=4,0 if case=='alloc_fail'else STUB
++                    assert [word(sp+i)for i in (4,8,12,16)]==[0,4096,0x3000,4]
++                elif name=='VirtualProtect':
++                    count,result=4,int(case!='protect_fail')
++                    assert [word(sp+i)for i in (4,8,12)]==[STUB,4096,0x20]
++                    u.mem_write(word(sp+16),struct.pack('<I',4))
++                elif name=='GetCurrentProcess':count,result=0,0xffffffff
++                elif name=='FlushInstructionCache':
++                    count=3;flushes.append((word(sp+8),word(sp+12)))
++                    result=int(not(case=='code_flush_fail'and len(flushes)==1 or case=='patch_flush_fail'and len(flushes)==2))
++                    if case=='concurrent_branch_change'and len(flushes)==1:u.mem_write(SITE,b'\xcc')
++                elif name=='VirtualFree':
++                    count,result=3,1;freed.append(word(sp+4))
++                    assert [word(sp+i)for i in (4,8,12)]==[STUB,0,0x8000]
++                elif name in ('memcpy','memset'):
++                    count=0;dst,src,n=[word(sp+i)for i in (4,8,12)]
++                    u.mem_write(dst,bytes(u.mem_read(src,n))if name=='memcpy'else bytes([src&255])*n);result=dst
++                else:raise AssertionError(('unexpected imported function',name))
++                u.reg_write(UC_X86_REG_EAX,result);u.reg_write(UC_X86_REG_ESP,sp+4+count*4);u.reg_write(UC_X86_REG_EIP,ret)
++            u.hook_add(UC_HOOK_CODE,api,begin=API,end=API+0xffff)
++            sp=MEM+0xf000;pointer=BASE+4 if case=='wrong_base'else BASE;size=len(CORE)-1 if case=='wrong_size'else len(CORE)
++            u.mem_write(sp,struct.pack('<III',STOP,pointer,size));u.reg_write(UC_X86_REG_ESP,sp)
++            u.emu_start(symbols['probe_install'],STOP,count=200000)
++            assert u.reg_read(UC_X86_REG_EIP)==STOP
++            assert u.reg_read(UC_X86_REG_ESP)==sp+4
++            accepted=bool(u.reg_read(UC_X86_REG_EAX));status=struct.unpack('<5I',u.mem_read(symbols['skeet_record_guard_status'],20))
++            assert accepted==(case=='success') and status==(1,20,int(accepted),0,0),(case,status)
++            patch=bytes(u.mem_read(SITE,6))
++            if accepted:
++                assert patch[0]==0xe9 and patch[5]==0x90
++                assert (SITE+5+struct.unpack_from('<i',patch,1)[0])&0xffffffff==STUB
++                assert len(flushes)==2 and not freed
++                expected=(ROOT/'build/shot_guard_50000000.bin').read_bytes()[:1024]
++                emitted=bytearray(u.mem_read(STUB,1024))
++                # Only the two diagnostic counter absolute addresses differ.
++                offsets=[i+3 for i in range(1021)if expected[i:i+3]==b'\xf0\xff\x05']
++                assert len(offsets)==2
++                for offset,field in zip(offsets,(12,16)):
++                    assert struct.unpack_from('<I',emitted,offset)[0]==symbols['skeet_record_guard_status']+field
++                    emitted[offset:offset+4]=expected[offset:offset+4]
++                assert emitted==expected
++            else:
++                assert patch==(b'\xcc'+original[1:] if case=='concurrent_branch_change'else original),case
++                if case not in ('unknown_site','wrong_base','wrong_size','alloc_fail'):assert freed==[STUB],case
++            if case=='patch_flush_fail':assert len(flushes)==3,'rollback must flush original bytes'
++            expected_core=bytearray(CORE)
++            expected_core[SITE-BASE:SITE-BASE+6]=patch
++            assert bytes(u.mem_read(BASE,len(CORE)))==expected_core,'installer modified another core site'
++            cases.append({'dll_base':hex(dllbase),'case':case,'installed':accepted,'flushes':len(flushes)})
++    report={'passed':True,'installer_cases':len(cases),'cases':cases,'game_executed':False,
++            'scope':'actual compiled installer with WinAPI stubs: byte guards, RX transition, patch/rollback/cache, exported status'}
++    (ROOT/'reports/shot_guard_install.json').write_text(json.dumps(report,indent=2)+'\n')
++    print(json.dumps({'passed':True,'installer_cases':len(cases)}))
++
++if __name__=='__main__':main()
+--- a/tests/verify_recovery_boundary.py
++++ b/tests/verify_recovery_boundary.py
+@@ -21,7 +21,9 @@
+ assert 'install_records'not in(src/'skeet.cpp').read_text()
+ assert 'install_records'not in(src/'cs2_visuals_impl.h').read_text()
+ assert 'installed=false' in(src/'record_options.h').read_text()
+-report={'passed':True,'active_custom_aim_detours':0,'production_local_translation_units':len(roots),
++assert any(p.name=='shot_guard_runtime.h'for p in seen)
++assert 'shot_guard::install' in(src/'skeet.cpp').read_text()
++report={'passed':True,'active_custom_record_or_point_detours':0,'native_command_guard':1,'production_local_translation_units':len(roots),
+  'reachable_local_files':len(seen),'record_or_hitscan_installers_unreachable':True,
+  'original_record_and_point_sites':list(map(hex,sites)),'original_core_sha256':hashlib.sha256(image).hexdigest(),
+  'evidence_scope':'source include graph plus original embedded resource bytes; not live game memory',
+--- /dev/null
++++ b/tests/verify_shot_guard_release.py
+@@ -0,0 +1,37 @@
++"""Check production PE/status/resource and known VM write boundaries."""
++from pathlib import Path
++import hashlib,json,struct
++import pefile
++
++r=Path(__file__).resolve().parents[1]
++core=(r/'source/skeet/Binary/skeet.bin').read_bytes()
++regions=[(0x43355de3,0x43355e07),(0x433560cd,0x43356123),
++         (0x4332fc35,0x4332fc94),(0x4334fb71,0x4334fb9e)]
++entries=json.loads((r/'source/skeet/VM/bytecode.json').read_text())
++count=0
++for unit in entries:
++    if not unit.get('main'):continue
++    for item in [unit['main']]+unit.get('others',[]):
++        count+=1;v=int(item['vip']);size=int(item['size'])
++        assert all(not(a<v+size and v<b)for a,b in regions),('VM overwrites profile',hex(v))
++cpp=(r/'source/skeet/skeet.cpp').read_text()
++tail=cpp[cpp.index('bool skeet_t::extra()'):cpp.index('bool skeet_t::entry()')]
++assert tail.index('recompile();')<tail.index('shot_guard::install')
++assert 'record_runtime.h'not in cpp and 'install_records'not in cpp
++p=pefile.PE(str(r/'build/skeet.dll'));s={x.name.decode():x.address for x in p.DIRECTORY_ENTRY_EXPORT.symbols if x.name}
++assert struct.unpack('<5I',p.get_data(s['skeet_record_guard_status'],20))==(1,20,0,0,0)
++improved=p.get_data(s['skeet_improved_status'],256)
++assert improved[28:].startswith(b'Record Command Guard 5\0')
++assert all(json.loads((r/'reports'/name).read_text())['passed']for name in
++           ('source.json','recovery_boundary.json','shot_guard.json','shot_guard_install.json',
++            'windows_build_validation.json','movement_v2_windows.json'))
++report={'passed':True,'native_guard_site':'0x43355de9','overwritten_core_bytes':6,
++        'guard_installed_after_vm_fixups':True,'vm_write_entries_checked':count,
++        'vm_overlap_with_guard_profile':False,'status_export_rva':hex(s['skeet_record_guard_status']),
++        'stock_record_pose_and_point_hooks_disabled':True,'embedded_core_sha256':hashlib.sha256(core).hexdigest(),
++        'dll_sha256':hashlib.sha256((r/'build/skeet.dll').read_bytes()).hexdigest(),
++        'injector_sha256':hashlib.sha256((r/'build/injector.exe').read_bytes()).hexdigest(),
++        'game_executed':False,'hitrate_improvement_measured':False,
++        'scope':'native automatic-shot record/command consistency guard; not a resolver rewrite or demonstrated fix for all correction misses'}
++(r/'reports/guard5_release.json').write_text(json.dumps(report,indent=2)+'\n')
++print(json.dumps(report,indent=2))
+--- a/verify_source.py
++++ b/verify_source.py
+@@ -58,7 +58,8 @@
+     assert 'install_records' not in cpp
+     assert 'record_runtime::install' not in (SRC/'cs2_visuals_impl.h').read_text()
+     assert (SRC/'record_runtime.h').is_file() and (SRC/'record_controls.h').is_file()
+-    result={'passed':True,'scope':'original embedded core; custom record/point detours absent; combined movement exports dormant without adapter',
++    assert 'shot_guard::install' in cpp
++    result={'passed':True,'scope':'original embedded resource; one native automatic-shot command guard; custom record/point detours absent; movement exports dormant without adapter',
+             'original_core_sha256':digest,'core_bytes':len(core),
+             'fingerprint':hex(fingerprint),'removed_source_files':REMOVED,
+             'local_includes_checked':local_includes,'project_paths_checked':project_paths,

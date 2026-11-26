@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "native_guard_site": "0x43355de9",
+  "overwritten_core_bytes": 6,
+  "guard_installed_after_vm_fixups": true,
+  "vm_write_entries_checked": 4669,
+  "vm_overlap_with_guard_profile": false,
+  "status_export_rva": "0x402004",
+  "stock_record_pose_and_point_hooks_disabled": true,
+  "embedded_core_sha256": "bbb5ee98d00db63dfc5c454b238d5edd3f809976686be226dbc5f6ae55018b07",
+  "dll_sha256": "10d2295a431602113231ad406e2ad075ca9457de0be8b9f009fe1b24f1e99541",
+  "injector_sha256": "73584aeca269e23edea55fb392bf6bb31a2a6cbc5b3fda1c7b050c39b217a45b",
+  "game_executed": false,
+  "hitrate_improvement_measured": false,
+  "scope": "native automatic-shot record/command consistency guard; not a resolver rewrite or demonstrated fix for all correction misses"
+}
