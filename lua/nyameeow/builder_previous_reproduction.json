@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "previous_release_bugs_reproduced": 4,
+  "checks": [
+    "previous Static path ignores explicit yaw delay",
+    "previous initial command replay consumes a phase",
+    "previous state switch retains old freeze timer",
+    "previous negative jitter selects the opposite defensive side"
+  ],
+  "game_executed": false
+}

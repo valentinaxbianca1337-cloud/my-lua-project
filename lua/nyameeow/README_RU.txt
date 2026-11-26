@@ -1,3 +1,5 @@
+Обновление Builder audit 2: см. BUILDER_AUDIT_RU.txt.
+
 nyameeow.pink
 
 Основной файл: nyameeow.pink.lua. Исправления сделаны в загруженной Lua,

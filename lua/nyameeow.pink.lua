@@ -1,3 +1,4 @@
+-- nyameeow.pink | Builder audit 2
 --черный верх черный iphone мои джинсы висят низко
 --они узнают мой флоу, пополняю смерти списки
 --мутим только хорошо, строки как обрывки жизни
@@ -10977,6 +10978,40 @@ local function sway(a, b, speed, time)
     if cycle > 1 then cycle = 2 - cycle end
     return round(a + (b - a) * cycle)
 end
+function runtime:requested_body_left(settings)
+    if not settings then return nil end
+    local native_fs = self.references and self.references.freestanding_body
+    if native_fs then
+        local ok, enabled = pcall(ui.get,native_fs[1])
+        if self.freestanding_body and not self.manual_applied and not self.legit_active then return nil end
+        local owned = self.native_owned and self.native_owned.freestanding_body
+        if ok and owned and enabled == owned.applied then enabled=owned.original[1] end
+        if ok and enabled == true then return nil end
+    end
+    local mode = settings.desync
+    if mode == 'Static' then
+        if self.current and self.current.safe_head then return nil end
+        local left = settings.desync_direction == '-'
+        if self.inverter_active then left = not left end
+        return left
+    elseif mode == 'L/R Desync' and settings.second_yaw then
+        local left = self:effective_lr_left()
+        if bounded(left and settings.desync_left or settings.desync_right,0,58,58) == 0 then return nil end
+        return left
+    elseif mode == 'Jitter' or mode == 'Randomize Jitter' then
+        local controlled = (settings.second_yaw and settings.delay_enable)
+            or bounded(settings.desync_invert_chance,0,100,100) < 100
+        if controlled and self.lr then
+            local value = bounded(settings.desync_value,-58,58,58)
+            if value == 0 then return nil end
+            if self:effective_lr_left() then value = -value end
+            return value < 0
+        end
+    end
+    -- A native Jitter/Opposite side is observed from pose data below. It is
+    -- not predicted by inventing a server orientation from this slider.
+    return nil
+end
 function runtime:defensive_angles(profile, cmd)
     local state = self.defensive_anim
     if not state then return nil, nil end
@@ -10984,10 +11019,8 @@ function runtime:defensive_angles(profile, cmd)
     local p1, p2 = bounded(profile.defensive_pitch_value, -89, 89, 0), bounded(profile.defensive_pitch_second, -89, 89, 0)
     local y1, y2 = bounded(profile.defensive_yaw_value, -180, 180, 0), bounded(profile.defensive_yaw_second, -180, 180, 0)
     local pmode, ymode = profile.defensive_pitch or 'Keep', profile.defensive_yaw or 'Keep'
-    local body = self.current and self.current.settings and self.current.settings.desync
-    local body_lr = self.lr and (body == 'Jitter' or body == 'L/R Desync' or body == 'Static')
-    local left
-    if body_lr then left = self:effective_lr_left() end
+    local left = self:requested_body_left(self.current and self.current.settings)
+    local body_lr = left ~= nil
     if profile.defensive_yaw_add_second and profile.defensive_yaw_switch == 'Desync' and not body_lr then
         local eligible = cmd and (tonumber(cmd.chokedcommands) or 0) == 0
         local number = cmd and tonumber(cmd.command_number)
@@ -11073,11 +11106,10 @@ function runtime:update_lr(settings, cmd, team, condition)
         self.lr = nil
         return
     end
-    if settings.desync == 'Static' then
-         
-         
+    local profile_key = tostring(team or '') .. ':' .. tostring(condition or '')
+    if settings.desync == 'Static' and not delay_enabled then
         local left = settings.desync_direction == '-'
-        local signature = 'static|' .. tostring(left)
+        local signature = 'static|' .. profile_key .. '|' .. tostring(left)
         if not self.lr or self.lr.signature ~= signature then
             self.lr = {left=left, source='static', signature=signature}
         end
@@ -11086,7 +11118,7 @@ function runtime:update_lr(settings, cmd, team, condition)
     if not delay_enabled and jitter and not custom_jitter then
          
          
-        local signature = 'pose|' .. settings.desync
+        local signature = 'pose|' .. profile_key .. '|' .. settings.desync
         local lr = self.lr
         if not lr or lr.signature ~= signature then
             local previous_side = lr and lr.left
@@ -11116,7 +11148,7 @@ function runtime:update_lr(settings, cmd, team, condition)
     local count = bounded(settings.delay_count, 1, 12, 1)
     local freeze = delay_enabled and selected(settings.delay_features, 'Freeze Inverter')
     local disable = delay_enabled and selected(settings.delay_features, 'Disabling')
-    local signature = {'delay', tostring(delay_enabled == true)}
+    local signature = {'delay', profile_key, tostring(settings.desync), tostring(delay_enabled == true)}
     if delay_enabled then
         signature[#signature + 1] = tostring(settings.delay_mode)
         signature[#signature + 1] = tostring(count)
@@ -11138,9 +11170,12 @@ function runtime:update_lr(settings, cmd, team, condition)
     if not lr or lr.signature ~= signature then
          
          
-        local previous_side = lr and lr.left
+        local previous_side
+        if lr and lr.profile_key == profile_key then previous_side=lr.left end
         if previous_side == nil then previous_side = true end
-        lr = {signature=signature, left=previous_side, index=1, counter=0, freeze_until=0, disable_until=0, last_freeze=-1000000}
+        lr = {signature=signature, profile_key=profile_key, left=previous_side, index=1, counter=0,
+            freeze_until=0, disable_until=0, last_freeze=-1000000}
+        if cmd and (tonumber(cmd.chokedcommands) or 0) == 0 then lr.last_command=tonumber(cmd.command_number) end
         lr.next = delay_enabled and next_delay(lr, settings) or 1
         self.lr = lr
         return
@@ -11173,7 +11208,7 @@ function runtime:update_lr(settings, cmd, team, condition)
 end
 
 local function normalize_yaw(value)
-    return (value + 180) % 360 - 180
+    return (finite_number(value,0) + 180) % 360 - 180
 end
 
  
@@ -11182,7 +11217,7 @@ end
 function runtime:randomized_yaw(settings, cmd)
     local two = settings.second_yaw == true
     local side = two and (self:effective_lr_left() and 'left' or 'right') or 'single'
-    local yaw = tonumber(settings[side == 'single' and 'yaw_single' or 'yaw_' .. side]) or 0
+    local yaw = finite_number(settings[side == 'single' and 'yaw_single' or 'yaw_' .. side],0)
     local percent = bounded(settings[side == 'single' and 'yaw_random_single' or 'yaw_random_' .. side], 0, 100, 0)
     local range = math.floor(math.abs(yaw) * percent / 100 + 0.5)
     if range == 0 then self.yaw_random = nil; return yaw end
@@ -11209,7 +11244,7 @@ function runtime:apply_basic(settings, cmd)
     self.owned = acquire_owned(self.owned, {r.pitch[1], r.pitch[2], r.yaw_base[1], r.yaw[1], r.yaw[2]})
     local pitch = settings.pitch or 'Down'
     local yaw = self:randomized_yaw(settings, cmd)
-    local offset = tonumber(settings.yaw_value) or 0
+    local offset = finite_number(settings.yaw_value,0)
     local values = {pitch, bounded(settings.pitch_value, -89, 89, 0), settings.yaw_base or 'At targets', '180', normalize_yaw(offset + yaw + (self.modifier_offset or 0))}
     local defensive = self.current and self.current.defensive
     if defensive then
