@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "original_failures_reproduced": 4,
+  "checks": [
+    "original partial state retains previous pitch amount",
+    "original failed PUI load leaves builder locked",
+    "original boolean hotkey write silently fails",
+    "original core disables builder permanently after one error"
+  ],
+  "game_executed": false
+}
