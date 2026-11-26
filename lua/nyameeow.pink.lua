@@ -1,4 +1,4 @@
--- nyameeow.pink | Builder audit 2
+-- nyameeow.pink | Scoped Viewmodel 3
 --черный верх черный iphone мои джинсы висят низко
 --они узнают мой флоу, пополняю смерти списки
 --мутим только хорошо, строки как обрывки жизни
@@ -6853,7 +6853,7 @@ function visuals:init(tab, owned)
     create(right, 'aspect_preset', b, '\n afterglow_aspect_preset', 'Custom', '5:4', '4:3', '16:10', '16:9')
     create(right, 'aspect_amount', sl, '\n afterglow_world_aspect_amount', 1, 200, 100, true, '', 0.01)
     create(right, 'viewmodel', c, title('Viewmodel Changer'))
-    create(right, 'viewmodel_features', ms, '\n afterglow_world_viewmodel_features', 'Opposite Knife Hand', 'Remove Sleeves', 'Lock Bob')
+    create(right, 'viewmodel_features', ms, '\n afterglow_world_viewmodel_features', 'Opposite Knife Hand', 'Remove Sleeves', 'Lock Bob', 'Show in scope')
     create(right, 'viewmodel_x', sl, '\n afterglow_world_viewmodel_x', -200, 200, 0, true, 'x', 0.1)
     create(right, 'viewmodel_y', sl, '\n afterglow_world_viewmodel_y', -200, 200, 0, true, 'y', 0.1)
     create(right, 'viewmodel_z', sl, '\n afterglow_world_viewmodel_z', -200, 200, 0, true, 'z', 0.1)
@@ -8620,7 +8620,7 @@ local CONTROL_RULES = {
     scope_gap = slider(0, 500), scope_speed = slider(1, 24), scope_options_default = multi('Reversed'),
     scope_options_rotated = multi('Reversed', 'Animate'), zoom_speed = slider(10, 100),
     aspect_preset = combo('Custom', '5:4', '4:3', '16:10', '16:9'), aspect_amount = slider(1, 200),
-    viewmodel_features = multi('Opposite Knife Hand', 'Remove Sleeves', 'Lock Bob'),
+    viewmodel_features = multi('Opposite Knife Hand', 'Remove Sleeves', 'Lock Bob', 'Show in scope'),
     viewmodel_x = slider(-200, 200), viewmodel_y = slider(-200, 200), viewmodel_z = slider(-200, 200), viewmodel_fov = slider(540, 900),
     second_amount = slider(50, 100), hitmarker_types = multi('2D', '3D'), hitmarker_2d_duration = slider(1, 50), hitmarker_3d_duration = slider(1, 50),
     lifetime = slider(10, 100), max_items = slider(1, 10), y_offset = slider(0, 600), wm_font = combo('Default', 'Pixel', 'Bold', 'Large'),
@@ -19008,6 +19008,87 @@ function world:viewmodel()
         end
     end
 end
+-- The installed gamesense/csgo_weapons library supplies the weapon-data
+-- layout. No guessed offset, scoped netprop edit or FOV override is used.
+local scoped_weapon_ids = {[8]=true,[9]=true,[11]=true,[38]=true,[39]=true,[40]=true}
+function world:restore_scope_viewmodel()
+    local errors = {}
+    local item = self.scope_weapon
+    if item then
+        local ok, err = pcall(function()
+            local current = self.scope_weapon_library and self.scope_weapon_library[item.id]
+            -- Do not dereference an old raw pointer after a library refresh.
+            if current and current.raw == item.raw and current.raw.hide_view_model_zoomed == false then
+                current.raw.hide_view_model_zoomed = item.original
+                assert(current.raw.hide_view_model_zoomed == item.original,'Viewmodel flag restore failed')
+            end
+        end)
+        if ok then self.scope_weapon=nil else errors[#errors+1]=tostring(err) end
+    end
+    local draw = self.scope_draw
+    if draw then
+        local ok, err = pcall(function()
+            if draw.cvar:get_int() == 1 then
+                draw.cvar:set_raw_int(draw.original)
+                assert(draw.cvar:get_int() == draw.original,'r_drawviewmodel restore failed')
+            end
+        end)
+        if ok then self.scope_draw=nil else errors[#errors+1]=tostring(err) end
+    end
+    if #errors>0 then error(table.concat(errors,'; '),0) end
+end
+function world:scope_viewmodel()
+    local v=self.menu.visuals.refs
+    if not self:enabled('Viewmodel Changer',v.viewmodel) or not selected(v.viewmodel_features,'Show in scope') then
+        return self:restore_scope_viewmodel()
+    end
+    local player=entity.get_local_player()
+    local scoped=player and entity.get_prop(player,'m_bIsScoped')
+    local weapon=player and entity.get_player_weapon(player)
+    local id=weapon and tonumber(entity.get_prop(weapon,'m_iItemDefinitionIndex'))
+    if id then id=id%65536 end
+    if not player or not entity.is_alive(player) or (scoped~=1 and scoped~=true) or not scoped_weapon_ids[id] then
+        return self:restore_scope_viewmodel()
+    end
+    if self.scope_weapon_library==nil then
+        local library=require('gamesense/csgo_weapons')
+        assert(type(library)=='table','gamesense/csgo_weapons is unavailable')
+        self.scope_weapon_library=library
+    end
+    local info=self.scope_weapon_library[id]
+    assert(info and info.raw~=nil,'Scoped weapon raw data is unavailable')
+    local raw=info.raw
+    local hidden=raw.hide_view_model_zoomed
+    assert(type(hidden)=='boolean','Weapon-data layout has no hide_view_model_zoomed bool')
+    local item=self.scope_weapon
+    if item and (item.id~=id or item.raw~=raw) then
+        self:restore_scope_viewmodel();item=nil
+        hidden=raw.hide_view_model_zoomed
+    end
+    if not item then
+        item={id=id,raw=raw,original=hidden}
+        self.scope_weapon=item
+    end
+    if hidden then raw.hide_view_model_zoomed=false end
+    assert(raw.hide_view_model_zoomed==false,'Cannot enable scoped viewmodel')
+    if not self.scope_draw then
+        local draw=assert(cvar.r_drawviewmodel,'r_drawviewmodel is unavailable')
+        local value=draw:get_int()
+        assert(type(value)=='number','Cannot read r_drawviewmodel')
+        self.scope_draw={cvar=draw,original=value}
+    end
+    local draw=self.scope_draw.cvar
+    if draw:get_int()~=1 then draw:set_raw_int(1) end
+    assert(draw:get_int()==1,'Cannot enable r_drawviewmodel')
+end
+function world:pre_render()
+    self:run('Show in scope',self.scope_viewmodel,self.restore_scope_viewmodel)
+end
+function world:level_init()
+    local ok,err=pcall(self.restore_scope_viewmodel,self)
+    if not ok then self:report('Show in scope level restore',err) end
+    if ok then self.failed['Show in scope']=nil end
+end
 function world:lock_bob()
     local v = self.menu.visuals.refs
     if not self:enabled('Viewmodel Changer', v.viewmodel) or not selected(v.viewmodel_features, 'Lock Bob') then
@@ -19124,6 +19205,7 @@ function world:override_view(event)
     end)
 end
 function world:paint()
+    self:pre_render()
     self:run('Viewmodel Changer', self.viewmodel, function(s) s:restore_group('viewmodel') end)
     self:run('Lock Bob', self.lock_bob, function(s) s:restore_group('bob') end)
     self:run('Opposite Knife Hand', self.knife_hand, self.restore_knife)
@@ -19132,6 +19214,7 @@ function world:paint()
 end
 function world:shutdown()
     local actions = {
+        {'scoped viewmodel', function() self:restore_scope_viewmodel() end},
         {'viewmodel', function() self:restore_group('viewmodel') end},
         {'bob', function() self:restore_group('bob') end},
         {'knife', function() self:restore_knife() end},
@@ -19705,7 +19788,11 @@ function runtime:paint()
     end
 end
 
+function runtime:pre_render()
+    if self.world then self.world:pre_render() end
+end
 function runtime:level_init()
+    if self.world then self.world:level_init() end
     if self.hitmarker then self.hitmarker:reset() end
     if self.manual_arrows then self.manual_arrows:reset() end
     if self.grenade_warning then self.grenade_warning:reset() end
@@ -23254,6 +23341,7 @@ function core:start()
             step('Visuals paint', modules.menu.visuals_runtime.paint, modules.menu.visuals_runtime)
         end,
         pre_render = function()
+            step('Visuals pre_render', modules.menu.visuals_runtime.pre_render, modules.menu.visuals_runtime)
             step('Misc pre_render', modules.menu.misc_runtime.pre_render, modules.menu.misc_runtime)
         end,
         setup_command = function(cmd)

@@ -1,3 +1,5 @@
+Scoped Viewmodel 3: см. SCOPED_VIEWMODEL_RU.txt.
+
 Обновление Builder audit 2: см. BUILDER_AUDIT_RU.txt.
 
 nyameeow.pink

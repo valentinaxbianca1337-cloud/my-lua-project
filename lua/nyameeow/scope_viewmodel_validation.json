@@ -1,0 +1,41 @@
+{
+  "passed": true,
+  "scope_behavior_checks": 25,
+  "checks": [
+    "scope option changes only the weapon hide flag and draw gate",
+    "scoped state remains unchanged",
+    "repeated render frame avoids redundant cvar writes",
+    "turning option off restores original values",
+    "weapon switch restores previous weapon data",
+    "leaving scope restores weapon flag and cvar",
+    "weapon whose original flag was false stays false",
+    "death releases owned values",
+    "missing weapon releases owned values",
+    "unsupported weapon does not mutate its data",
+    "master viewmodel switch releases scope feature",
+    "world category deselection releases scope feature",
+    "external draw-cvar change is preserved",
+    "external hide-flag change is respected",
+    "replaced library pointer is not overwritten during restore",
+    "level/disconnect cleanup restores scope flag",
+    "Lua shutdown restores scope flag",
+    "shared descriptor restores its actual original flag",
+    "unsupported weapon schema disables only this visual feature",
+    "supported schema recovers on level reset",
+    "draw-gate failure rolls back the weapon flag",
+    "boolean scoped property is accepted",
+    "disconnect with no local player restores owned values",
+    "new option passes legacy config validation",
+    "new option roundtrips through config codec"
+  ],
+  "baseline_checks": 42,
+  "uses_installed_weapon_library_layout": true,
+  "hardcoded_weapon_data_offsets": false,
+  "player_prediction_props_written": false,
+  "fov_override_used": false,
+  "native_ffi_executed": false,
+  "game_executed": false,
+  "limits": [
+    "Weapon data and cvar APIs are controlled fixtures; actual in-game drawing remains untested."
+  ]
+}
