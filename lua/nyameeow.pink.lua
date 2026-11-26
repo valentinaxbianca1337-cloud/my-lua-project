@@ -19058,6 +19058,10 @@ function world:scope_viewmodel()
     local info=self.scope_weapon_library[id]
     assert(info and info.raw~=nil,'Scoped weapon raw data is unavailable')
     local raw=info.raw
+    local levels,zoom_fov=tonumber(raw.zoom_levels),tonumber(raw.zoom_fov_1)
+    local expected_levels=(id==8 or id==39) and 1 or 2
+    assert(levels==expected_levels and zoom_fov and zoom_fov>0 and zoom_fov<=90,
+        'Scoped weapon-data zoom layout does not match this weapon')
     local hidden=raw.hide_view_model_zoomed
     assert(type(hidden)=='boolean','Weapon-data layout has no hide_view_model_zoomed bool')
     local item=self.scope_weapon

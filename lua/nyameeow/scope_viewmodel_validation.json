@@ -1,6 +1,6 @@
 {
   "passed": true,
-  "scope_behavior_checks": 25,
+  "scope_behavior_checks": 26,
   "checks": [
     "scope option changes only the weapon hide flag and draw gate",
     "scoped state remains unchanged",
@@ -21,6 +21,7 @@
     "Lua shutdown restores scope flag",
     "shared descriptor restores its actual original flag",
     "unsupported weapon schema disables only this visual feature",
+    "inconsistent zoom layout is rejected before any write",
     "supported schema recovers on level reset",
     "draw-gate failure rolls back the weapon flag",
     "boolean scoped property is accepted",
